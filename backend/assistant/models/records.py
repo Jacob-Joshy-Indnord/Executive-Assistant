@@ -136,6 +136,8 @@ class OrganisationSettings(MutableRecord):
     kind: ClassVar[str] = "organisation_settings"
 
     colour_meanings: dict[Colour, str] = Field(default_factory=dict)
+    meeting_notes_allowed: bool = False
+    """Whether transcripts may be used for notes in the organisation (part 2, section 8)."""
 
 
 # --- Work, chat and requests ------------------------------------------------
@@ -276,7 +278,7 @@ class ActionItem(MutableRecord):
     """A follow-up that fell outside working hours or over the day's notices waits until then."""
     follow_up_note: str | None = Field(default=None, max_length=REASON_LIMIT)
     """Why follow-ups are not being sent, e.g. asking owners is not allowed."""
-    origin: Literal["manager", "chat"]
+    origin: Literal["manager", "chat", "meeting"]
     project_id: FlowId | None = None
     assignment_id: FlowId | None = None
     assignment_state: str | None = Field(default=None, max_length=50)
@@ -315,7 +317,8 @@ class PersonRequest(MutableRecord):
     kind: ClassVar[str] = "person_request"
 
     person_id: FlowId
-    asks: Literal["accept", "update", "status", "confirm"]
+    asks: Literal["accept", "update", "status", "confirm", "attend"]
+    """``attend``: an organiser is asked whether the assistant may attend their meeting."""
     subject_kind: str = Field(max_length=50)
     subject_id: str
     answer_by: UtcDateTime
@@ -534,6 +537,205 @@ class OrganisationControl(MutableRecord):
     @property
     def state(self) -> str:
         return "paused" if self.all_paused else "running"
+
+
+# --- Meetings and their notes (part 2, Epic 1) -------------------------------------------
+
+TITLE_LIMIT = 200
+NOTE_LINE_LIMIT = 300
+SUMMARY_LIMIT = 600
+PART_TEXT_LIMIT = 100_000
+
+
+class MeetingState(StrEnum):
+    SHARED = "shared"
+    WRITING = "writing"
+    READY = "ready"
+    FAILED = "failed"
+    WITHDRAWN = "withdrawn"
+    REMOVED = "removed"
+
+
+class TranscriptPart(BaseModel):
+    """One numbered part of a transcript. The text (and the speaker's name) is kept only
+    until it is removed (BR-3); the number and the times or line numbers stay."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int = Field(ge=1)
+    starts: str | None = Field(default=None, max_length=20)
+    """For a .vtt or an attended meeting: when the part starts, e.g. ``00:01:02.000``."""
+    ends: str | None = Field(default=None, max_length=20)
+    first_line: int | None = Field(default=None, ge=1)
+    """For a text transcript: the line numbers the part covers."""
+    last_line: int | None = Field(default=None, ge=1)
+    speaker: str | None = Field(default=None, max_length=200)
+    text: str | None = Field(default=None, max_length=PART_TEXT_LIMIT)
+
+    def without_text(self) -> TranscriptPart:
+        return self.model_copy(update={"text": None, "speaker": None})
+
+
+class Meeting(MutableRecord):
+    """A transcript shared by the person who ran a meeting, or delivered by the meeting
+    service for a meeting the assistant attended, and what became of it."""
+
+    kind: ClassVar[str] = "meeting"
+
+    title: str = Field(min_length=1, max_length=TITLE_LIMIT)
+    meeting_date: date
+    organiser_id: FlowId
+    manager_id: FlowId
+    project_ids: list[FlowId] = Field(default_factory=list, max_length=50)
+    origin: Literal["shared", "attended"] = "shared"
+    ran_it: bool = False
+    """The organiser's tick: "I ran this meeting"."""
+    people_knew: bool = False
+    """The organiser's tick: "People in it knew it was recorded and used for notes"."""
+    organiser_agreed: bool = False
+    """For an attended meeting: the organiser's agreement, in place of the two ticks."""
+    source_format: Literal["vtt", "text", "attended"] = "text"
+    parts: list[TranscriptPart] = Field(default_factory=list)
+    text_arrived_at: UtcDateTime
+    """When the transcript's text arrived: shared, or delivered by the meeting service."""
+    text_removed_at: UtcDateTime | None = None
+    work_id: UUID | None = None
+    """The piece of work writing the notes now."""
+    attendance_id: UUID | None = None
+    notes_id: UUID | None = None
+    manager_attended: bool | None = None
+    reason: str | None = Field(default=None, max_length=REASON_LIMIT)
+    """Why the notes could not be written: one sentence to show the manager."""
+    state: MeetingState = MeetingState.SHARED
+
+    @property
+    def text_kept(self) -> bool:
+        return any(part.text is not None or part.speaker is not None for part in self.parts)
+
+
+class NoteLine(BaseModel):
+    """A summary, decision or open point, with the transcript parts it came from."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str = Field(min_length=1, max_length=SUMMARY_LIMIT)
+    parts: list[int] = Field(min_length=1)
+
+
+class NoteAction(BaseModel):
+    """An action from a meeting. It reaches its owner only once the manager keeps it (BR-4)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: UUID = Field(default_factory=uuid4)
+    text: str = Field(min_length=1, max_length=MESSAGE_LIMIT)
+    owner_name: str | None = Field(default=None, max_length=200)
+    owner_id: FlowId | None = None
+    """``None``: "Owner not found", for the manager to choose with Edit."""
+    due_date: date | None = None
+    parts: list[int] = Field(min_length=1)
+    state: Literal["proposed", "kept", "removed"] = "proposed"
+    item_id: UUID | None = None
+    """The action item it became when the manager kept it."""
+    edited: bool = False
+
+
+class NoteStatement(BaseModel):
+    """A project's status as said in the meeting. Never shown to the manager until its
+    owner confirms it, and it never carries a colour (BR-4)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    project_id: FlowId
+    project_name: str = Field(max_length=200)
+    wording: StatementWording
+    parts: list[int] = Field(min_length=1)
+    draft_id: UUID | None = None
+
+
+class MeetingNotes(MutableRecord):
+    """The notes of one meeting: a summary, decisions, actions, open points and status,
+    each line with its transcript parts, and nothing else that was said (BR-2)."""
+
+    kind: ClassVar[str] = "meeting_notes"
+
+    meeting_id: UUID
+    title: str = Field(min_length=1, max_length=TITLE_LIMIT)
+    meeting_date: date
+    organiser_id: FlowId
+    project_ids: list[FlowId] = Field(default_factory=list)
+    origin: Literal["shared", "attended"] = "shared"
+    summary: NoteLine | None = None
+    decisions: list[NoteLine] = Field(default_factory=list)
+    actions: list[NoteAction] = Field(default_factory=list)
+    open_points: list[NoteLine] = Field(default_factory=list)
+    statements: list[NoteStatement] = Field(default_factory=list)
+    parts: list[TranscriptPart] = Field(default_factory=list)
+    """The part numbers and times or line numbers the lines cite; never their text."""
+    manager_attended: bool | None = None
+    dropped_statements: int = Field(default=0, ge=0)
+    """Statements about projects the manager does not follow, left out."""
+    shared: bool = False
+    """Whether the manager shared the note with the organisation's knowledge store."""
+    shared_at: UtcDateTime | None = None
+
+    @property
+    def state(self) -> str:
+        return "shared" if self.shared else "kept"
+
+
+class AttendanceState(StrEnum):
+    BOOKED = "booked"
+    WAITING_FOR_ORGANISER = "waiting_for_organiser"
+    DECLINED = "declined"
+    JOINING = "joining"
+    ATTENDING = "attending"
+    LEFT = "left"
+    WRITING_NOTES = "writing_notes"
+    READY = "ready"
+    FAILED = "failed"
+    WITHDRAWN = "withdrawn"
+
+
+AttendanceBecause = Literal[
+    "cancelled",
+    "ended_before_joining",
+    "no_answer",
+    "organiser_declined",
+    "organiser_removed",
+    "join_refused",
+    "not_let_in",
+    "no_transcript",
+    "notes_failed",
+]
+
+
+class MeetingAttendance(MutableRecord):
+    """The assistant booked to attend one meeting. Ids, times and states only: no
+    transcript, no notes and no other text; the title is read from the meeting service
+    when it is shown."""
+
+    kind: ClassVar[str] = "meeting_attendance"
+
+    manager_id: FlowId
+    meeting_ref: FlowId
+    """The meeting as the meeting service identifies it."""
+    organiser_id: FlowId
+    starts_at: UtcDateTime
+    ends_at: UtcDateTime
+    series_id: FlowId | None = None
+    booked_by: Literal["manager", "assistant"] = "manager"
+    request_id: UUID | None = None
+    """The assistant's proposal through the approval check, if it came from one."""
+    ask_id: UUID | None = None
+    """What the organiser was asked on Requests for you."""
+    join_asked_at: UtcDateTime | None = None
+    left_at: UtcDateTime | None = None
+    transcript_wanted: bool = True
+    meeting_id: UUID | None = None
+    """The Meeting kept from its transcript."""
+    because: AttendanceBecause | None = None
+    state: AttendanceState = AttendanceState.BOOKED
 
 
 def append_only_kinds() -> frozenset[str]:

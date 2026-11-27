@@ -21,8 +21,16 @@ from starlette.routing import BaseRoute, Mount
 
 from assistant.api.router import PREFIX
 from assistant.module import create_module
-from standins.sample import FINANCE_LEAD, OUTSIDER
-from tests.world import PERSONAS, UNSHOWN_WORDING, Seeded, World, build_world_sync
+from standins.meetings import sample_meetings
+from standins.sample import FINANCE_LEAD, OPERATIONS_DIRECTOR, OUTSIDER
+from tests.world import (
+    MEETING_WORDS,
+    PERSONAS,
+    UNSHOWN_WORDING,
+    Seeded,
+    World,
+    build_world_sync,
+)
 
 NOT_FOUND_BODY = {"detail": {"code": "not_found", "message": "Not found."}}
 
@@ -183,6 +191,150 @@ def _only_the_manager_stops_following(world: World, persona: str, response: Any)
 
 def _seeded_request(seeded: Seeded) -> dict[str, str]:
     return {"request_id": str(seeded.request.id)}
+
+
+# Meetings (part 2) ------------------------------------------------------------------------
+
+OWNER_REFUSED = {"manager": 404, "other_manager": 404, "owner": 422, "administrator": 404}
+"""Only the organiser reaches it, and is told why it cannot be done now."""
+SHARE = {
+    "title": "Supplier call",
+    "date": "2026-11-20",
+    "manager_id": OPERATIONS_DIRECTOR.id,
+    "pasted_text": "Decision: Go ahead with the supplier.",
+    "ran_it": True,
+    "people_knew": True,
+}
+OPERATIONS_REVIEW = sample_meetings()[0].id
+
+
+def _seeded_meeting(seeded: Seeded) -> dict[str, str]:
+    return {"meeting_id": str(seeded.shared_meeting.id)}
+
+
+def _seeded_notes(seeded: Seeded) -> dict[str, str]:
+    return {"notes_id": str(seeded.notes.id)}
+
+
+def _seeded_action(seeded: Seeded) -> dict[str, str]:
+    return {"notes_id": str(seeded.notes.id), "action_id": str(seeded.notes.actions[0].id)}
+
+
+def _seeded_ask(seeded: Seeded) -> dict[str, str]:
+    return {"request_id": str(seeded.organiser_ask.id)}
+
+
+def _organiser_sees_title_and_state_only(world: World, persona: str, response: Any) -> None:
+    assert MEETING_WORDS not in response.text
+    if response.status_code == 200:
+        assert set(response.json()) == {"id", "title", "state"}, response.json()
+
+
+def _only_the_manager_keeps_the_action(world: World, persona: str, response: Any) -> None:
+    items = world.call("GET", f"{PREFIX}/action-items", PERSONAS["manager"]).json()["items"]
+    texts = [i["text"] for i in items]
+    expected = 1 if persona == "manager" else 0
+    assert texts.count("Check the vendor invoices") == expected, (persona, texts)
+
+
+def _only_the_organiser_withdraws(world: World, persona: str, response: Any) -> None:
+    listed = world.call("GET", f"{PREFIX}/transcripts", PERSONAS["owner"]).json()["transcripts"]
+    state = next(t["state"] for t in listed if t["id"] == str(world.seeded.shared_meeting.id))
+    assert state == ("withdrawn" if persona == "owner" else "shared"), (persona, state)
+
+
+def _only_the_organiser_answers(expected: str) -> Callable[[World, str, Any], None]:
+    def check(world: World, persona: str, response: Any) -> None:
+        path = f"{PREFIX}/meetings/bookings/{world.seeded.attendance.id}"
+        state = world.call("GET", path, PERSONAS["manager"]).json()["state"]
+        assert state == (expected if persona == "owner" else "waiting_for_organiser"), state
+
+    return check
+
+
+def _only_the_managers_booking(world: World, persona: str, response: Any) -> None:
+    upcoming = world.call("GET", f"{PREFIX}/meetings/upcoming", PERSONAS["manager"]).json()
+    review = next(m for m in upcoming["meetings"] if m["id"] == OPERATIONS_REVIEW)
+    assert (review["booking"] is not None) is (persona == "manager"), (persona, review)
+
+
+def _no_transcript_words(world: World, persona: str, response: Any) -> None:
+    assert MEETING_WORDS not in response.text, persona
+
+
+MEETING_EXPECTATIONS: dict[tuple[str, str], Expectation] = {
+    ("POST", "/api/assistant/transcripts"): Expectation(
+        _no_params, EVERYONE, body=SHARE, checks=[_organiser_sees_title_and_state_only]
+    ),
+    ("GET", "/api/assistant/transcripts"): Expectation(
+        _no_params, EVERYONE, checks=[_no_transcript_words]
+    ),
+    ("POST", "/api/assistant/transcripts/{meeting_id}/withdraw"): Expectation(
+        _seeded_meeting,
+        OWNER_ONLY,
+        checks=[_organiser_sees_title_and_state_only, _only_the_organiser_withdraws],
+    ),
+    ("GET", "/api/assistant/meetings"): Expectation(
+        _no_params, OWN_ASSISTANT, checks=[_no_transcript_words]
+    ),
+    ("GET", "/api/assistant/meetings/upcoming"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/meetings/upcoming/{meeting_ref}/attend"): Expectation(
+        lambda s: {"meeting_ref": OPERATIONS_REVIEW},
+        MANAGER_ONLY,
+        checks=[_only_the_managers_booking],
+    ),
+    ("GET", "/api/assistant/meetings/bookings"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/meetings/bookings/{booking_id}"): Expectation(
+        lambda s: {"booking_id": str(s.attendance.id)}, MANAGER_ONLY, returns_id=_own("attendance")
+    ),
+    ("GET", "/api/assistant/meetings/{meeting_id}"): Expectation(
+        _seeded_meeting,
+        MANAGER_ONLY,
+        returns_id=_own("shared_meeting"),
+        checks=[_no_transcript_words],
+    ),
+    ("POST", "/api/assistant/meetings/{meeting_id}/retry"): Expectation(
+        _seeded_meeting, MANAGER_REACHES
+    ),
+    ("GET", "/api/assistant/meeting-notes"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/meeting-notes/search"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/meeting-notes/{notes_id}"): Expectation(
+        _seeded_notes, MANAGER_ONLY, returns_id=_own("notes")
+    ),
+    ("DELETE", "/api/assistant/meeting-notes/{notes_id}"): Expectation(
+        _seeded_notes, MANAGER_ONLY
+    ),
+    ("POST", "/api/assistant/meeting-notes/{notes_id}/actions/{action_id}/keep"): Expectation(
+        _seeded_action, MANAGER_ONLY, checks=[_only_the_manager_keeps_the_action]
+    ),
+    ("PUT", "/api/assistant/meeting-notes/{notes_id}/actions/{action_id}"): Expectation(
+        _seeded_action, MANAGER_ONLY, body={"due_date": "2026-11-30"}
+    ),
+    ("POST", "/api/assistant/meeting-notes/{notes_id}/actions/{action_id}/remove"): Expectation(
+        _seeded_action, MANAGER_ONLY
+    ),
+    ("POST", "/api/assistant/meeting-notes/{notes_id}/share"): Expectation(
+        _seeded_notes, MANAGER_ONLY
+    ),
+    ("POST", "/api/assistant/meeting-notes/{notes_id}/unshare"): Expectation(
+        _seeded_notes, MANAGER_ONLY
+    ),
+    ("GET", "/api/assistant/meeting-requests"): Expectation(_no_params, EVERYONE),
+    ("GET", "/api/assistant/meeting-requests/{request_id}"): Expectation(
+        _seeded_ask,
+        OWNER_ONLY,
+        returns_id=lambda s, persona: str(s.organiser_ask.id) if persona == "owner" else None,
+    ),
+    ("POST", "/api/assistant/meeting-requests/{request_id}/accept"): Expectation(
+        _seeded_ask, OWNER_ONLY, checks=[_only_the_organiser_answers("booked")]
+    ),
+    ("POST", "/api/assistant/meeting-requests/{request_id}/decline"): Expectation(
+        _seeded_ask, OWNER_ONLY, checks=[_only_the_organiser_answers("declined")]
+    ),
+    ("POST", "/api/assistant/meeting-requests/{request_id}/remove"): Expectation(
+        _seeded_ask, OWNER_REFUSED
+    ),
+}
 
 
 EXPECTATIONS: dict[tuple[str, str], Expectation] = {
@@ -360,6 +512,7 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/my-statements"): Expectation(_no_params, EVERYONE),
     ("GET", "/api/assistant/waiting-count"): Expectation(_no_params, OWN_ASSISTANT),
     ("GET", "/api/assistant/people"): Expectation(_no_params, EVERYONE),
+    **MEETING_EXPECTATIONS,
 }
 
 

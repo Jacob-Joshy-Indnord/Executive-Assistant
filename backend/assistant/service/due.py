@@ -11,6 +11,10 @@ back with its claim and is tried again on the next run.
 
 A kind that recurs returns only its latest occurrence that is due, so steps
 missed while an assistant was paused are done once, not once per missed run.
+
+A kind with ``runs_while_paused = True`` (removing a transcript's text after 7
+days, BR-3 of part 2) also runs for new and paused assistants; every other
+kind runs only for active ones (BR-14). Nothing runs for an ended assistant.
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ class DueStep:
 
 class DueStepKind(Protocol):
     name: str
+    """Kinds may also set ``runs_while_paused = True``; see the module docstring."""
 
     async def due(self, reader: Transaction, ctx: DueContext, until: datetime) -> list[DueStep]:
         """Steps due at or before ``until``; for each subject, only the latest occurrence."""
@@ -82,6 +87,10 @@ class DueStepRegistry:
 
 DUE_STEPS = DueStepRegistry()
 """The module's due steps. Later services register their kinds here."""
+
+
+def runs_while_paused(kind: DueStepKind) -> bool:
+    return bool(getattr(kind, "runs_while_paused", False))
 
 
 def claim_id(assistant: AssistantRecord, kind: str, step: DueStep) -> UUID:
@@ -118,23 +127,45 @@ class DueRunner:
                 return []
             return await tx.find(AssistantRecord, state=AssistantState.ACTIVE)
 
+    async def _assistants(self, organisation_id: str) -> list[tuple[AssistantRecord, bool]]:
+        """Every assistant that has not ended, and whether it is running. Only running ones
+        get every kind; the others only kinds that run while paused."""
+        if not any(runs_while_paused(kind) for kind in self.registry.all()):
+            return [(a, True) for a in await self._running_assistants(organisation_id)]
+        async with self.store.transaction(organisation_id) as tx:
+            paused = await organisation_paused(tx, organisation_id)
+            found = await tx.find(AssistantRecord)
+        return [
+            (a, a.state is AssistantState.ACTIVE and not paused)
+            for a in found
+            if a.state is not AssistantState.ENDED
+        ]
+
+    def _kinds(self, all_kinds: bool) -> list[DueStepKind]:
+        return [k for k in self.registry.all() if all_kinds or runs_while_paused(k)]
+
     async def run_due(self) -> RunSummary:
         """Flow's "Run what is due": every step due now, for every running assistant, once."""
         now = await self.boundary.clock.now()
         summary = RunSummary()
         for organisation_id in await self.store.organisation_ids():
-            for assistant in await self._running_assistants(organisation_id):
-                await self.run_for(assistant, now, summary)
+            for assistant, is_running in await self._assistants(organisation_id):
+                await self.run_for(assistant, now, summary, all_kinds=is_running)
         return summary
 
     async def run_for(
-        self, assistant: AssistantRecord, now: datetime, summary: RunSummary | None = None
+        self,
+        assistant: AssistantRecord,
+        now: datetime,
+        summary: RunSummary | None = None,
+        *,
+        all_kinds: bool = True,
     ) -> RunSummary:
         summary = summary or RunSummary()
         async with self.store.transaction(assistant.organisation_id) as tx:
             ctx = await self._context(tx, assistant)
             pending: list[tuple[str, DueStep]] = []
-            for kind in self.registry.all():
+            for kind in self._kinds(all_kinds):
                 for step in await kind.due(tx, ctx, now):
                     if await tx.get(DueStepClaim, claim_id(assistant, kind.name, step)) is None:
                         pending.append((kind.name, step))
@@ -144,7 +175,7 @@ class DueRunner:
         done_before = summary.done
         for kind_name, step in pending:
             await self._run_step(assistant, kind_name, step, summary)
-        if summary.done > done_before:
+        if summary.done > done_before and all_kinds:
             for hook in self.after_run:
                 await hook(assistant)
         return summary
@@ -156,8 +187,10 @@ class DueRunner:
 
         async def work(action: Action) -> bool:
             current = await action.get(AssistantRecord, assistant.id)
-            if current is None or not await running(action, current):
-                return False  # paused or ended since the run began
+            if current is None or current.state is AssistantState.ENDED:
+                return False  # ended since the run began
+            if not runs_while_paused(kind) and not await running(action, current):
+                return False  # paused since the run began
             await action.add(
                 "assistant.due_step_claimed",
                 DueStepClaim(
@@ -204,10 +237,10 @@ class DueRunner:
         now = await self.boundary.clock.now()
         earliest: datetime | None = None
         for organisation_id in await self.store.organisation_ids():
-            for assistant in await self._running_assistants(organisation_id):
+            for assistant, is_running in await self._assistants(organisation_id):
                 async with self.store.transaction(organisation_id) as tx:
                     ctx = await self._context(tx, assistant)
-                    for kind in self.registry.all():
+                    for kind in self._kinds(is_running):
                         candidates = [
                             step.due_at
                             for step in await kind.due(tx, ctx, now)

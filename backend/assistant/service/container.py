@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from assistant.boundary.interfaces import Boundary
 from assistant.service import item_steps, status_steps  # noqa: F401  (register due steps)
 from assistant.service.approval_levels import ApprovalLevelService
+from assistant.service.attendance import AttendanceService
 from assistant.service.checks import ToolChecks
 from assistant.service.closing import ClosingService
 from assistant.service.control import ControlService
@@ -15,6 +16,8 @@ from assistant.service.due import DUE_STEPS, DueRunner, DueStepRegistry
 from assistant.service.intake import ToolIntake
 from assistant.service.items import ItemService
 from assistant.service.manager_notices import ManagerNoticeService
+from assistant.service.meeting_notes import NotesService
+from assistant.service.meetings import MeetingService
 from assistant.service.organisation import OrganisationService
 from assistant.service.requests import RequestService
 from assistant.service.setup import SetupService
@@ -39,6 +42,9 @@ class Services:
     decisions: DecisionService
     status: StatusService
     manager_notices: ManagerNoticeService
+    meetings: MeetingService
+    attendance: AttendanceService
+    notes: NotesService
 
 
 def build_services(
@@ -51,13 +57,21 @@ def build_services(
     control = ControlService(boundary, store, due)
     work = WorkService(boundary, store)
     requests = RequestService(boundary, store)
-    work.tool_requests = ToolIntake(boundary, ToolChecks(boundary), requests)
+    intake = ToolIntake(boundary, ToolChecks(boundary), requests)
+    work.tool_requests = intake
+    requests.after_carry_out.append(work.advance)
+    meetings = MeetingService(boundary, store, requests)
+    attendance = AttendanceService(boundary, store, requests, meetings)
+    work.on_finished.append(meetings.work_finished)
+    intake.handlers["meeting_notes"] = meetings.take_notes
+    intake.handlers["attend_meeting"] = attendance.propose_attend
     control.result_handler = work.handle_result
     control.on_caught_up.append(requests.carry_out_approved)
     control.on_caught_up.append(work.advance)
     due.after_run.append(requests.carry_out_approved)
     due.after_run.append(work.advance)
     items = ItemService(boundary, store, requests)
+    notes = NotesService(boundary, store, items)
     status = StatusService(boundary, store, requests)
     decisions = DecisionService(boundary, store, items, work, status)
     manager_notices = ManagerNoticeService(boundary, store, requests, decisions)
@@ -79,4 +93,7 @@ def build_services(
         decisions=decisions,
         status=status,
         manager_notices=manager_notices,
+        meetings=meetings,
+        attendance=attendance,
+        notes=notes,
     )

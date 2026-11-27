@@ -123,6 +123,8 @@ class ModuleFactoryTest(unittest.IsolatedAsyncioTestCase):
                 notices=injected.notices,
                 records=object(),  # type: ignore[arg-type]
                 clock=injected.clock,
+                meetings=injected.meetings,
+                knowledge=injected.knowledge,
             )
 
 
@@ -143,6 +145,8 @@ class BoundaryFailureTest(unittest.IsolatedAsyncioTestCase):
             "notices": lambda: module.boundary.notices.notify(nothing),
             "records": lambda: module.boundary.records.write(nothing),
             "clock": lambda: module.boundary.clock.now(),
+            "meetings": lambda: module.boundary.meetings.upcoming("m"),
+            "knowledge": lambda: module.boundary.knowledge.remove(ORG, "n"),
         }
         for part_name, attempt in attempts.items():
             with self.subTest(part_name):

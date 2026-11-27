@@ -303,6 +303,68 @@ module's "Run what is due", as Flow's schedule would.
   `GET /status-requests/{id}`, `POST /status-requests/{id}/answer` and
   `POST /statements/{id}/correct`. Each is in the visibility sweep.
 
+### Meeting notes decisions (part 2, Epic 1)
+
+- **Two ways in, one path.** An organiser shares a transcript (`POST /transcripts`, any person in
+  the organisation, with the two ticks), or the assistant attends a meeting and the meeting
+  service delivers it. Either way it becomes a `Meeting` with numbered parts (`rules/meetings.py`:
+  times for .vtt and attended meetings, line numbers for text), a `meeting_notes` piece of work
+  whose pack holds the parts as data, and the same checks, review and removal.
+- **Sharing** (`service/meetings.py`). Uploads arrive as JSON: a .vtt or .txt file as its name
+  and base64 bytes, or pasted text. They are read in memory only, never written to disk or run,
+  and each refusal has its own sentence (`rules.meetings.SHARING_REFUSALS`). Meeting notes are
+  off until an administrator allows them (`PUT /organisation/settings`
+  `{"meeting_notes_allowed": true}`). 'Write notes from a shared transcript' starts at with
+  approval and can be limited to projects (`limits.projects` on `PUT /approval-levels/{kind}`);
+  the approval request carries the projects the transcript names, and outside the limit it
+  waits for the manager (never refused). Not allowed refuses the sharing and keeps nothing.
+- **Withdrawal and the organiser's list.** The organiser sees only title and state
+  (`GET /transcripts`) and withdraws while shared, writing or failed: the text goes, a waiting
+  request closes, the manager is told the title. Notes arriving afterwards are refused as
+  discarded.
+- **Checks** (`MeetingService.take_notes`). Every line is checked alone: 300 characters (600 for
+  the summary), and every cited part must exist. An unmatched owner is kept as "Owner not
+  found"; a statement about a project not followed is dropped and counted. Once the notes are
+  kept, the transcript's text and speakers are removed (numbers and times stay), each statement
+  becomes a draft for its confirmer through the approval check, and the manager gets one notice.
+  A piece of work that ends without notes fails the meeting with its reason;
+  `POST /meetings/{id}/retry` tries again while the text is kept.
+- **7 days** (`transcript_text_removal`). This due step is the only one that also runs for new
+  and paused assistants (`runs_while_paused`), because BR-3's 7 days are the latest. A meeting
+  still shared, writing or failed is then removed without notes, and the manager is told.
+- **Review** (`service/meeting_notes.py`). Keep, Edit and Remove are the manager's own clicks (no
+  approval). Keep uses the same checks and the same `_give_to` as a hand-given item (origin
+  `meeting`; a virtual employee needs `assignment_id`). Statements show only "Awaiting its owner"
+  until confirmed, and then the confirmed words. Each kept line shows its item's outcome
+  (`done`, `closed` or `raised`) and its date.
+- **Attending** (`service/attendance.py`). The boundary gains `Meetings` (upcoming, join, leave,
+  transcript) and `Knowledge` (add, remove), and names no product. Attend for me books one
+  meeting or a series without approval. The `attend_meeting` tool goes through 'Attend a
+  meeting and take notes' (with approval). A meeting the manager does not organise asks its
+  organiser (`/meeting-requests`, a person request with `asks: "attend"`). The attendance
+  record holds ids, times and states only. Due steps, each claimed once:
+  `meeting_withdrawals` (cancelled or over), `meeting_start` (no answer → withdrawn, else join as
+  "<manager>'s assistant (notes)"), `meeting_admission` (asks again every 2 minutes, stops at 10),
+  and `meeting_end` (leave, then ask for the transcript every 10 minutes; failed at 2 hours).
+  Removal by the organiser, on Requests for you or in the meeting (the leave answer's
+  `removed_at`), leaves the meeting, and only what was said before is used.
+- **Remembered meetings.** `GET /meeting-notes/search` (words, meeting, project, person) never
+  matches unconfirmed statements. A chat message naming a past meeting adds its notes to the
+  pack as data (`meeting_notes` inputs), so the reply can cite them.
+  `POST /meeting-notes/{id}/share` and `/unshare` tell Flow through Knowledge, and deleting a
+  shared note takes it back. Hand-over and end never call Knowledge.
+- **Stand-ins**: `standins/meetings.py` (three meetings for the Operations director; switches
+  `kept_waiting`, `join_refused`, `no_transcript`; the transcript 10 minutes after the end),
+  `standins/knowledge.py` (a list) and `standins/sample_transcript.py` (the vendor review).
+- **Addresses added**: `POST/GET /transcripts`, `POST /transcripts/{id}/withdraw`,
+  `GET /meetings`, `GET /meetings/upcoming`, `POST /meetings/upcoming/{ref}/attend`,
+  `GET /meetings/bookings`, `GET /meetings/bookings/{id}`, `GET /meetings/{id}`,
+  `POST /meetings/{id}/retry`, `GET /meeting-notes`, `GET /meeting-notes/search`,
+  `GET/DELETE /meeting-notes/{id}`, `POST /meeting-notes/{id}/actions/{action}/keep`,
+  `PUT /meeting-notes/{id}/actions/{action}`, `POST .../remove`, `POST /meeting-notes/{id}/share`,
+  `/unshare`, `GET /meeting-requests`, `GET /meeting-requests/{id}` and
+  `POST /meeting-requests/{id}/accept`, `/decline`, `/remove`. Each is in the visibility sweep.
+
 ## Front end
 
 Next.js 15 (App Router), React 19, TypeScript in strict mode, Tailwind CSS 3 and
@@ -405,3 +467,12 @@ the assistant drafts statements.
 - Assignment changes are seen when a run reads them: a change that is undone between two runs
   is not news. "Report now" also starts a new window and counts towards two reports in a row
   without a confirmation.
+- Meeting notes (part 2, Epic 1) were verified with the standard-library test runner only;
+  black, ruff and mypy were not run. Run `backend/check.sh` before merging.
+- Removing everything at hand-over or end (notes, transcripts, bookings, organiser requests,
+  leaving a meeting) is the Learning epic's task "Remove everything at handover or end". Until
+  then, part 1's closing handlers already withdraw organiser asks and cancel running work.
+- A shared transcript is cut to fit the input pack (200,000 characters). The parts left out are
+  counted in `left_out`, so a very long transcript gets notes from its first parts only.
+- `meeting_withdrawals` asks the meeting service on every run while any booking waits, like the
+  part 1 steps that read Flow.

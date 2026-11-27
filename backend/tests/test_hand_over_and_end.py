@@ -220,6 +220,8 @@ class HandOverAndEndTest(unittest.IsolatedAsyncioTestCase):
                 "add_action_item": "with_approval",
                 "send_message": "with_approval",  # the old manager had set without approval
                 "purchase": "not_allowed",
+                "write_meeting_notes": "with_approval",
+                "attend_meeting": "with_approval",
             },
         )
         # nothing from before is visible to the new manager

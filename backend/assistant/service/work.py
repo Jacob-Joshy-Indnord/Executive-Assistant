@@ -14,7 +14,7 @@ one sentence and can be tried again, as a new piece at the end of the queue.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -56,6 +56,9 @@ MAX_STARTS_AT_ONCE = 100
 """How many refused pieces one advance may pass over before it stops."""
 
 StartOutcome = Literal["idle", "busy", "started", "refused", "failed"]
+
+FinishHook = Callable[[Action, AssistantRecord, PieceOfWork], Awaitable[None]]
+"""Run inside the action in which a piece of work is done, refused or failed."""
 
 
 class ToolRequestHandler(Protocol):
@@ -134,6 +137,14 @@ class WorkService:
         self.store = store
         self.registry = registry
         self.tool_requests: ToolRequestHandler = RefuseToolRequests()
+        self.on_finished: list[FinishHook] = []
+        """E.g. the meeting whose notes a piece of work was writing fails when it does."""
+
+    async def _finished(
+        self, action: Action, assistant: AssistantRecord, piece: PieceOfWork
+    ) -> None:
+        for hook in self.on_finished:
+            await hook(action, assistant, piece)
 
     # Asking for work ------------------------------------------------------------
 
@@ -346,7 +357,7 @@ class WorkService:
             )
             if answer.accepted:
                 return "started"
-            await action.change(
+            refused = await action.change(
                 "assistant.work_refused",
                 started,
                 started.evolve(
@@ -355,6 +366,7 @@ class WorkService:
                     finished_at=action.now,
                 ),
             )
+            await self._finished(action, current, refused)
             await action.change(
                 "assistant.work_slot_freed", taken, taken.evolve(running_work_id=None)
             )
@@ -385,11 +397,14 @@ class WorkService:
         async def work(action: Action) -> None:
             current = await action.get(PieceOfWork, piece.id)
             if current is not None and current.state is WorkState.WAITING:
-                await action.change(
+                failed = await action.change(
                     "assistant.work_failed",
                     current,
                     current.evolve(state=WorkState.FAILED, reason=reason, finished_at=action.now),
                 )
+                assistant = await action.get(AssistantRecord, piece.assistant_id or uuid4())
+                if assistant is not None:
+                    await self._finished(action, assistant, failed)
 
         await perform(self.boundary, self.store, piece.organisation_id, FLOW, work)
 
@@ -406,7 +421,7 @@ class WorkService:
                 return False  # the same result again, or work that was cancelled
             action.assistant_id = assistant.id
             if result.failure is not None:
-                await action.change(
+                finished = await action.change(
                     "assistant.work_failed",
                     piece,
                     piece.evolve(
@@ -416,7 +431,8 @@ class WorkService:
                     ),
                 )
             else:
-                await self._use_result(action, assistant, piece, result)
+                finished = await self._use_result(action, assistant, piece, result)
+            await self._finished(action, assistant, finished)
             await self._free_slot(action, assistant, piece.id)
             return True
 
@@ -438,7 +454,7 @@ class WorkService:
 
     async def _use_result(
         self, action: Action, assistant: AssistantRecord, piece: PieceOfWork, result: WorkResult
-    ) -> None:
+    ) -> PieceOfWork:
         refused: list[str] = []
         reply: str | None = None
         if result.reply is not None and result.reply.strip():
@@ -461,7 +477,7 @@ class WorkService:
         refused.extend(
             await self.tool_requests.take(action, assistant, piece, list(result.tool_requests))
         )
-        await action.change(
+        return await action.change(
             "assistant.work_done",
             piece,
             piece.evolve(

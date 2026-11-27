@@ -87,6 +87,9 @@ class RecordShapesTest(unittest.TestCase):
                 "due_step_claim",
                 "kept_result",
                 "organisation_control",
+                "meeting",
+                "meeting_notes",
+                "meeting_attendance",
             },
         )
         for kind, cls in RECORD_TYPES.items():

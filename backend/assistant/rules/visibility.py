@@ -19,6 +19,9 @@ from assistant.models.records import (
     ActionItem,
     AssistantRecord,
     ConfirmedStatement,
+    Meeting,
+    MeetingAttendance,
+    MeetingNotes,
     PersonRequest,
     Record,
     StatementDraft,
@@ -66,6 +69,22 @@ def administrators_only(viewer: Viewer, record: Record, assistant: AssistantReco
 
 MANAGER_ONLY: Rule = is_its_manager
 
+
+def organiser_of_shared_or_manager(
+    viewer: Viewer, record: Record, assistant: AssistantRecord | None
+) -> bool:
+    """A shared transcript is its organiser's to list and withdraw (BR-5: they are shown
+    only its title and state); a meeting the assistant attended is its manager's only."""
+    if record.organisation_id != viewer.organisation_id:
+        return False
+    if (
+        isinstance(record, Meeting)
+        and record.origin == "shared"
+        and record.organiser_id == viewer.person_id
+    ):
+        return True
+    return is_its_manager(viewer, record, assistant)
+
 VISIBILITY: dict[str, Rule] = {
     "assistant": MANAGER_ONLY,
     "preferences": MANAGER_ONLY,
@@ -88,6 +107,11 @@ VISIBILITY: dict[str, Rule] = {
     "due_step_claim": MANAGER_ONLY,
     "kept_result": MANAGER_ONLY,
     "manager_notice_mark": MANAGER_ONLY,
+    Meeting.kind: organiser_of_shared_or_manager,
+    # Notes and bookings are the manager's only; an organiser sees only the state of the
+    # request made to them (a person request), an owner only their own items and statements.
+    MeetingNotes.kind: MANAGER_ONLY,
+    MeetingAttendance.kind: MANAGER_ONLY,
 }
 
 

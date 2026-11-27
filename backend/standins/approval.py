@@ -42,6 +42,10 @@ class StandInApproval:
             return CheckOutcome(outcome="ask_manager")
         if limits.per_day is not None and request.count_today >= limits.per_day:
             return CheckOutcome(outcome="ask_manager")
+        if limits.project_ids is not None and any(
+            project_id not in limits.project_ids for project_id in request.project_ids
+        ):
+            return CheckOutcome(outcome="ask_manager")  # outside the limit: never declined
         return CheckOutcome(outcome="carry_out")
 
     async def carry_out(self, request: ApprovalRequest) -> CarryOutResult:

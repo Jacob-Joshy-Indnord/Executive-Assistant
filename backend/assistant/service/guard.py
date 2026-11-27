@@ -18,6 +18,8 @@ from assistant.boundary.interfaces import (
     Assistant,
     Boundary,
     Clock,
+    Knowledge,
+    Meetings,
     Notices,
     People,
     Records,
@@ -33,6 +35,8 @@ PART_SENTENCES: dict[str, str] = {
     "notices": "Notices could not be sent, so nothing was changed.",
     "records": "The audit record could not be reached, so nothing was changed.",
     "clock": "The time could not be read, so nothing was changed.",
+    "meetings": "The meeting service could not be reached, so nothing was changed.",
+    "knowledge": "The knowledge store could not be reached, so nothing was changed.",
 }
 
 
@@ -79,4 +83,6 @@ def guard(boundary: Boundary) -> Boundary:
         notices=cast(Notices, _GuardedPart(boundary.notices, PART_SENTENCES["notices"])),
         records=cast(Records, _GuardedPart(boundary.records, PART_SENTENCES["records"])),
         clock=cast(Clock, _GuardedClock(boundary.clock, PART_SENTENCES["clock"])),
+        meetings=cast(Meetings, _GuardedPart(boundary.meetings, PART_SENTENCES["meetings"])),
+        knowledge=cast(Knowledge, _GuardedPart(boundary.knowledge, PART_SENTENCES["knowledge"])),
     )

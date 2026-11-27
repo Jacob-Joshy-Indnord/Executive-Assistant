@@ -13,6 +13,13 @@ from assistant.models.boundary import (
     AuditRecord,
     CarryOutResult,
     CheckOutcome,
+    JoinRequest,
+    JoinResult,
+    KnowledgeNote,
+    KnowledgeResult,
+    LeaveResult,
+    MeetingInfo,
+    MeetingTranscript,
     Notice,
     NoticeResult,
     Person,
@@ -114,6 +121,36 @@ class SpyClock(Spy):
         return self.value  # type: ignore[no-any-return]
 
 
+class SpyMeetings(Spy):
+    async def upcoming(self, manager_id: str) -> list[MeetingInfo]:
+        self._hit("meetings.upcoming")
+        return []
+
+    async def join(self, request: JoinRequest) -> JoinResult:
+        self._hit("meetings.join")
+        return JoinResult(outcome="waiting")
+
+    async def leave(self, meeting_id: str, assistant_flow_id: str) -> LeaveResult:
+        self._hit("meetings.leave")
+        return LeaveResult(left=True)
+
+    async def transcript(
+        self, meeting_id: str, assistant_flow_id: str
+    ) -> MeetingTranscript | None:
+        self._hit("meetings.transcript")
+        return None
+
+
+class SpyKnowledge(Spy):
+    async def add(self, note: KnowledgeNote) -> KnowledgeResult:
+        self._hit("knowledge.add")
+        return KnowledgeResult(done=True)
+
+    async def remove(self, organisation_id: str, note_id: str) -> KnowledgeResult:
+        self._hit("knowledge.remove")
+        return KnowledgeResult(done=True)
+
+
 def spy_boundary() -> tuple[Boundary, list[str]]:
     calls: list[str] = []
     boundary = Boundary(
@@ -124,5 +161,7 @@ def spy_boundary() -> tuple[Boundary, list[str]]:
         notices=SpyNotices(calls),
         records=SpyRecords(calls),
         clock=SpyClock(calls),
+        meetings=SpyMeetings(calls),
+        knowledge=SpyKnowledge(calls),
     )
     return boundary, calls

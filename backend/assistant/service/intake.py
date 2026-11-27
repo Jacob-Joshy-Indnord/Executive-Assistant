@@ -9,6 +9,7 @@ someone else (BR-1), so a change that tries is refused.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from assistant.boundary.interfaces import Boundary
@@ -40,6 +41,12 @@ VIRTUAL_EMPLOYEE_ITEM = (
 )
 
 
+ToolHandler = Callable[
+    [Action, AssistantRecord, PieceOfWork, CheckedRequest], Awaitable[list[str] | str | None]
+]
+"""Uses one checked tool request; returns why it, or parts of it, were refused."""
+
+
 def the(person: Person | None) -> str:
     return f"the {person.display_name}" if person else "a person"
 
@@ -49,6 +56,8 @@ class ToolIntake:
         self.boundary = boundary
         self.checks = checks
         self.requests = requests
+        self.handlers: dict[str, ToolHandler] = {}
+        """Tools registered by later services, e.g. ``meeting_notes``."""
 
     async def take(
         self,
@@ -61,7 +70,9 @@ class ToolIntake:
         refused = list(result.refused)
         for checked in result.accepted:
             reason = await self._use(action, assistant, work, checked)
-            if reason:
+            if isinstance(reason, list):
+                refused.extend(reason)
+            elif reason:
                 refused.append(reason)
         return refused
 
@@ -70,15 +81,19 @@ class ToolIntake:
 
     async def _use(
         self, action: Action, assistant: AssistantRecord, work: PieceOfWork, c: CheckedRequest
-    ) -> str | None:
-        use = {
+    ) -> list[str] | str | None:
+        use: dict[str, ToolHandler] = {
             "draft": self._draft,
             "action_item": self._action_item,
             "ask_for_update": self._ask_for_update,
             "status_statement": self._status_statement,
             "raise_attention": self._raise_attention,
-        }[c.tool]
-        return await use(action, assistant, work, c)
+            **self.handlers,
+        }
+        handler = use.get(c.tool)
+        if handler is None:
+            return refusal(c.index, f"{c.tool} cannot be handled yet")
+        return await handler(action, assistant, work, c)
 
     async def _draft(
         self, action: Action, assistant: AssistantRecord, work: PieceOfWork, c: CheckedRequest

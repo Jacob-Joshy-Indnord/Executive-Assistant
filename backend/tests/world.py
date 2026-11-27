@@ -10,6 +10,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -19,29 +20,42 @@ from assistant.models.boundary import ActionKind
 from assistant.models.records import (
     ActionItem,
     AssistantRecord,
+    AttendanceState,
     AttentionEntry,
     ConfirmedStatement,
     FollowedProject,
+    Meeting,
+    MeetingAttendance,
+    MeetingNotes,
+    MeetingState,
+    NoteAction,
+    NoteLine,
+    OrganisationSettings,
     PersonRequest,
     PersonRequestState,
     PieceOfWork,
     Report,
     RequestRecord,
     StatementWording,
+    TranscriptPart,
     WorkKind,
     WorkState,
 )
 from assistant.module import AssistantModule, create_module
 from assistant.rules.visibility import Viewer
+from assistant.service.organisation import settings_id
 from assistant.store.sqlite import SqliteStore
 from standins import StandIns, build_standins
+from standins.meetings import SampleMeeting
 from standins.people import PERSON_HEADER
 from standins.sample import (
+    DEFAULT_START,
     FINANCE_LEAD,
     LEGAL_LEAD,
     OPERATIONS_DIRECTOR,
     ORGANISATION_ADMINISTRATOR,
     ORGANISATION_ID,
+    PROGRAMME_LEAD,
     SALES_DIRECTOR,
     sample_id,
 )
@@ -56,6 +70,17 @@ PERSONAS = {
     "administrator": ORGANISATION_ADMINISTRATOR.id,
 }
 UNSHOWN_WORDING = "The assistant's wording the owner did not confirm"
+MEETING_WORDS = "Decision: Renew the contract with the cleaning vendor."
+SEEDED_MEETING = SampleMeeting(
+    "contract_renewal",
+    "Contract renewal",
+    LEGAL_LEAD,
+    DEFAULT_START + timedelta(days=60),
+    DEFAULT_START + timedelta(days=60, hours=1),
+    {OPERATIONS_DIRECTOR.id, LEGAL_LEAD.id},
+)
+"""A meeting the Legal lead (the owner persona) organises: the seeded booking waits for them."""
+"""The seeded shared transcript's only words: they must never be shown or recorded."""
 
 
 def viewer(person_id: str, administrator: bool = False) -> Viewer:
@@ -75,6 +100,13 @@ class Seeded:
     followed: FollowedProject
     report: Report
     status_ask: PersonRequest
+    shared_meeting: Meeting
+    """Shared by the Legal lead (the owner persona) for the manager, waiting for approval."""
+    notes: MeetingNotes
+    """Notes of a meeting the Programme lead shared, with one action not yet kept."""
+    attendance: MeetingAttendance
+    """A booking for a meeting the Legal lead organises, waiting for them to answer."""
+    organiser_ask: PersonRequest
 
 
 @dataclass
@@ -200,14 +232,94 @@ async def seed(module: AssistantModule) -> Seeded:
                 state=PersonRequestState.SENT,
             )
         )
+        await tx.add(
+            OrganisationSettings(
+                id=settings_id(org), organisation_id=org, created_at=t, meeting_notes_allowed=True
+            )
+        )
+        shared_meeting = await tx.add(
+            Meeting(
+                **mine,
+                title="Contract review",
+                meeting_date=date(2026, 11, 20),
+                organiser_id=LEGAL_LEAD.id,
+                manager_id=OPERATIONS_DIRECTOR.id,
+                ran_it=True,
+                people_knew=True,
+                parts=[TranscriptPart(number=1, first_line=1, last_line=1, text=MEETING_WORDS)],
+                text_arrived_at=t,
+            )
+        )
+        ready_meeting = await tx.add(
+            Meeting(
+                **mine,
+                title="Vendor review",
+                meeting_date=date(2026, 11, 20),
+                organiser_id=PROGRAMME_LEAD.id,
+                manager_id=OPERATIONS_DIRECTOR.id,
+                ran_it=True,
+                people_knew=True,
+                parts=[TranscriptPart(number=1, first_line=1, last_line=1)],
+                text_arrived_at=t,
+                text_removed_at=t,
+                state=MeetingState.READY,
+            )
+        )
+        notes = await tx.add(
+            MeetingNotes(
+                **mine,
+                meeting_id=ready_meeting.id,
+                title="Vendor review",
+                meeting_date=date(2026, 11, 20),
+                organiser_id=PROGRAMME_LEAD.id,
+                decisions=[NoteLine(text="We keep two vendors.", parts=[1])],
+                actions=[
+                    NoteAction(
+                        text="Check the vendor invoices",
+                        owner_name="Finance lead",
+                        owner_id=FINANCE_LEAD.id,
+                        due_date=date(2026, 11, 27),
+                        parts=[1],
+                    )
+                ],
+                parts=[TranscriptPart(number=1, first_line=1, last_line=1)],
+            )
+        )
+        ask_id = uuid4()
+        attendance = await tx.add(
+            MeetingAttendance(
+                **mine,
+                manager_id=OPERATIONS_DIRECTOR.id,
+                meeting_ref=SEEDED_MEETING.id,
+                organiser_id=LEGAL_LEAD.id,
+                starts_at=SEEDED_MEETING.starts_at,
+                ends_at=SEEDED_MEETING.ends_at,
+                ask_id=ask_id,
+                state=AttendanceState.WAITING_FOR_ORGANISER,
+            )
+        )
+        organiser_ask = await tx.add(
+            PersonRequest(
+                **mine,
+                id=ask_id,
+                person_id=LEGAL_LEAD.id,
+                asks="attend",
+                subject_kind="meeting_attendance",
+                subject_id=str(attendance.id),
+                answer_by=attendance.starts_at,
+                sent_at=t,
+                state=PersonRequestState.SENT,
+            )
+        )
     return Seeded(
         assistant, other, work, item, person_request, statement, request, attention, followed,
-        report, status_ask,
+        report, status_ask, shared_meeting, notes, attendance, organiser_ask,
     )  # fmt: skip
 
 
 async def build_world(**module_options: Any) -> World:
     standins = build_standins()
+    standins.meetings.meetings[SEEDED_MEETING.id] = SEEDED_MEETING
     store = SqliteStore()
     module = create_module(standins.boundary, store, **module_options)
     seeded = await seed(module)

@@ -22,6 +22,7 @@ subject is done, closed or changed are withdrawn.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -80,6 +81,8 @@ class RequestService:
     def __init__(self, boundary: Boundary, store: Store) -> None:
         self.boundary = boundary
         self.store = store
+        self.after_carry_out: list[Callable[[AssistantRecord], Awaitable[None]]] = []
+        """Run once a request is carried out and saved, e.g. to start work it queued."""
 
     # Making a request ------------------------------------------------------------------
 
@@ -181,6 +184,7 @@ class RequestService:
             count_today=await self._count_today(reader, assistant, request, now),
             approved_by_manager=approved_by_manager,
             text=request.edited_text if request.edited_text is not None else request.text,
+            project_ids=list(request.payload.get("project_ids", [])),
         )
 
     async def _check(
@@ -201,6 +205,7 @@ class RequestService:
 
     async def carry_out(self, organisation_id: str, request_id: UUID, who: str = FLOW) -> None:
         """Carry out an approved request: the module's part, then Flow's, at most once."""
+        carried: list[AssistantRecord] = []
 
         async def work(action: Action) -> None:
             request = await action.get(RequestRecord, request_id)
@@ -239,6 +244,7 @@ class RequestService:
                 ),
                 details={"request_kind": kind.name, "allowed_by": request.allowed_by or "none"},
             )
+            carried.append(assistant)
 
         try:
             await perform(self.boundary, self.store, organisation_id, who, work)
@@ -250,6 +256,9 @@ class RequestService:
             if error.status != 503 or error.code == "not_saved":
                 raise
             await self._fail(organisation_id, request_id, NOT_REACHED, who)
+        for assistant in carried:
+            for hook in self.after_carry_out:
+                await hook(assistant)
 
     async def _fail(self, organisation_id: str, request_id: UUID, reason: str, who: str) -> None:
         async def work(action: Action) -> None:

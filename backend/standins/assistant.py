@@ -2,11 +2,19 @@
 
 Answers are built from the input pack. A faults switch adds faulty tool
 requests (an unknown name, a missing source, text over the limit and an
-unknown field) so that the module's checks can be shown and tested.
+unknown field) so that the module's checks can be shown and tested; for
+meeting notes, it adds lines that name a part that does not exist or are too
+long.
+
+From a transcript it uses the lines that begin with "Decision:", "Action:",
+"Open:" and "Status:", and no other line, and writes a summary from the first
+lines. Asked about a past meeting, it answers from the notes in its pack and
+names them.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -18,12 +26,25 @@ from assistant.models.boundary import PackInput, StartResult, WorkKind, WorkOrde
 MESSAGE_KIND = "message"
 PROJECT_NEWS_KIND = "project_news"
 CHOICE_KIND = "choice"
+MEETING_KIND = "meeting"
+PARTS_KIND = "transcript_parts"
+NOTES_KIND = "meeting_notes"
+SUMMARY_LINES = 2
+"""The first lines of a transcript the summary is written from."""
+MISSING_PART = 9999
 
 ACTION_ITEM_TEXT_LIMIT = 300
 UNKNOWN_NAME = "Nobody Of That Name"
 MISSING_SOURCE = "A source that was never given"
 
 _WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_ACTION = re.compile(
+    r"^(?P<owner>.+?)\s+to\s+(?P<task>.+?)(?:\s+by\s+(?P<due>\d{4}-\d{2}-\d{2}|"
+    + "|".join(_WEEKDAYS)
+    + r"))?\.?$",
+    re.IGNORECASE,
+)
+_MARKS = ("Decision:", "Action:", "Open:", "Status:")
 _REMIND = re.compile(
     r"^\s*remind\s+(?:the\s+)?(?P<owner>.+?)\s+to\s+(?P<task>.+?)\s+by\s+(?P<day>"
     + "|".join(_WEEKDAYS)
@@ -49,6 +70,7 @@ class ScriptedAssistant:
             WorkKind.REQUEST: self._answer_request,
             WorkKind.STATUS_DRAFTS: self._answer_status_drafts,
             WorkKind.FOLLOW_ON: self._answer_follow_on,
+            WorkKind.MEETING_NOTES: self._answer_meeting_notes,
         }
 
     async def start_work(self, order: WorkOrder) -> StartResult:
@@ -74,6 +96,8 @@ class ScriptedAssistant:
         result = self._answers[order.kind](order, now)
         if not self.faults:
             return result
+        if order.kind is WorkKind.MEETING_NOTES:
+            return result.model_copy(update={"tool_requests": _faulty_notes(result.tool_requests)})
         return result.model_copy(
             update={"tool_requests": [*result.tool_requests, *self._faulty(order, now)]}
         )
@@ -83,6 +107,9 @@ class ScriptedAssistant:
     def _answer_request(self, order: WorkOrder, now: datetime) -> WorkResult:
         message = _first(order.input_pack.inputs, MESSAGE_KIND)
         match = _REMIND.match(message.content) if message else None
+        notes = _first(order.input_pack.inputs, NOTES_KIND)
+        if match is None and notes is not None:
+            return WorkResult(work_id=order.work_id, reply=_from_notes(notes))
         if message is None or match is None:
             return WorkResult(work_id=order.work_id, reply="I have noted this.")
         task = match["task"].strip().rstrip(".")
@@ -123,6 +150,51 @@ class ScriptedAssistant:
         reply = "I have noted your decision." if choice else "There was no decision to follow."
         return WorkResult(work_id=order.work_id, reply=reply)
 
+    def _answer_meeting_notes(self, order: WorkOrder, now: datetime) -> WorkResult:
+        meeting = _first(order.input_pack.inputs, MEETING_KIND)
+        if meeting is None:
+            return WorkResult(work_id=order.work_id, reply="There was no transcript to read.")
+        parts = [
+            json.loads(line)
+            for item in order.input_pack.inputs
+            if item.kind == PARTS_KIND
+            for line in item.content.splitlines()
+            if line.strip()
+        ]
+        notes: dict[str, Any] = {
+            "tool": "meeting_notes",
+            "meeting": meeting.subject_id,
+            "decisions": [],
+            "actions": [],
+            "open_points": [],
+            "statements": [],
+        }
+        first = parts[:SUMMARY_LINES]
+        if first:
+            notes["summary"] = {
+                "text": " ".join(p["text"] for p in first)[:600],
+                "parts": [p["number"] for p in first],
+            }
+        for part in parts:
+            text: str = part["text"]
+            mark = next((m for m in _MARKS if text.startswith(m)), None)
+            if mark is None:
+                continue  # only the marked lines become notes
+            rest = text[len(mark) :].strip()
+            cited = [part["number"]]
+            if mark == "Decision:":
+                notes["decisions"].append({"text": rest, "parts": cited})
+            elif mark == "Open:":
+                notes["open_points"].append({"text": rest, "parts": cited})
+            elif mark == "Action:":
+                notes["actions"].append(_action(rest, cited, now))
+            else:
+                project, _, reason = rest.partition(":")
+                notes["statements"].append(
+                    {"project": project.strip(), "reason": reason.strip() or rest, "parts": cited}
+                )
+        return WorkResult(work_id=order.work_id, tool_requests=[notes])
+
     # Faults -----------------------------------------------------------------
 
     @staticmethod
@@ -151,3 +223,54 @@ class ScriptedAssistant:
 
 def _first(inputs: list[PackInput], kind: str) -> PackInput | None:
     return next((item for item in inputs if item.kind == kind), None)
+
+
+def _action(rest: str, parts: list[int], now: datetime) -> dict[str, Any]:
+    """ "<owner> to <task> by <date or weekday>": an action with its owner and due date."""
+    match = _ACTION.match(rest)
+    if match is None:
+        return {"text": rest, "parts": parts}
+    task = match["task"].strip()
+    action: dict[str, Any] = {
+        "text": task[:1].upper() + task[1:],
+        "owner": match["owner"].strip(),
+        "parts": parts,
+    }
+    due = match["due"]
+    if due:
+        action["due_date"] = (
+            due if due[0].isdigit() else next_weekday(now.date(), due).isoformat()
+        )
+    return action
+
+
+def _faulty_notes(tool_requests: list[Any]) -> list[Any]:
+    """Notes with a decision naming a part that does not exist and an open point that is
+    too long, beside the good lines."""
+    faulty: list[Any] = []
+    for request in tool_requests:
+        if isinstance(request, dict) and request.get("tool") == "meeting_notes":
+            request = {
+                **request,
+                "decisions": [
+                    *request.get("decisions", []),
+                    {"text": "A decision from a part that is not there", "parts": [MISSING_PART]},
+                ],
+                "open_points": [
+                    *request.get("open_points", []),
+                    {"text": "x" * (ACTION_ITEM_TEXT_LIMIT + 1), "parts": [1]},
+                ],
+            }
+        faulty.append(request)
+    return faulty
+
+
+def _from_notes(notes: PackInput) -> str:
+    """An answer from kept notes that names them, so the manager can open them."""
+    lines = [
+        line
+        for line in notes.content.splitlines()
+        if line.startswith(("Summary:", "Decision:", "Open:", "Action:"))
+    ]
+    said = " ".join(lines[:4]) or "There is nothing more in them."
+    return f"From {notes.label}: {said}"[:4000]

@@ -64,6 +64,8 @@ class ApprovalLevelsTest(unittest.TestCase):
                 "add_action_item": ("with_approval", 10, False),
                 "send_message": ("with_approval", 5, False),
                 "purchase": ("not_allowed", None, True),
+                "write_meeting_notes": ("with_approval", None, False),
+                "attend_meeting": ("with_approval", None, False),
             },
         )
         self.assertTrue(levels["send_message"]["allowed_limits"]["people"])
@@ -80,7 +82,11 @@ class ApprovalLevelsTest(unittest.TestCase):
         self.assertEqual(body["level"], "without_approval")
         self.assertEqual(
             body["limits"],
-            {"people": [{"id": LEGAL_LEAD.id, "display_name": "Legal lead"}], "per_day": 3},
+            {
+                "people": [{"id": LEGAL_LEAD.id, "display_name": "Legal lead"}],
+                "per_day": 3,
+                "projects": None,
+            },
         )
         record = self.w.standins.records.written[-1]
         self.assertEqual(

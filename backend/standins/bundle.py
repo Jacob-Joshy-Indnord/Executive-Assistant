@@ -9,7 +9,9 @@ from assistant.boundary.interfaces import Boundary
 from standins.approval import StandInApproval
 from standins.assistant import ScriptedAssistant
 from standins.clock import MovableClock
+from standins.knowledge import ListKnowledge
 from standins.lists import ListNotices, ListRecords
+from standins.meetings import StandInMeetings
 from standins.people import StandInPeople
 from standins.sample import DEFAULT_START
 from standins.work_data import StandInWorkData
@@ -26,6 +28,8 @@ class StandIns:
     notices: ListNotices
     records: ListRecords
     clock: MovableClock
+    meetings: StandInMeetings
+    knowledge: ListKnowledge
 
     @property
     def boundary(self) -> Boundary:
@@ -37,6 +41,8 @@ class StandIns:
             notices=self.notices,
             records=self.records,
             clock=self.clock,
+            meetings=self.meetings,
+            knowledge=self.knowledge,
         )
 
 
@@ -50,4 +56,6 @@ def build_standins(start: datetime = DEFAULT_START) -> StandIns:
         notices=ListNotices(),
         records=ListRecords(),
         clock=clock,
+        meetings=StandInMeetings.sample(clock, start),
+        knowledge=ListKnowledge(),
     )

@@ -25,11 +25,13 @@ from pydantic import BaseModel, ConfigDict
 from starlette.types import Receive, Scope, Send
 
 from assistant.api.errors import ModuleErrorRoute
-from assistant.errors import NotFound
+from assistant.errors import NotAllowedValue, NotFound
 from assistant.models.boundary import AssignmentState
 from assistant.models.records import AssistantRecord, AssistantState
 from assistant.module import AssistantModule, create_module
+from assistant.service.assistants import current_assistant
 from assistant.service.pausing import organisation_paused
+from assistant.service.setup import ALREADY_HAS_ONE
 from assistant.store.sqlite import SqliteStore
 from standins.bundle import StandIns, build_standins
 from standins.clock import Ran
@@ -279,6 +281,12 @@ def create_demo_router(demo: Demonstration) -> APIRouter:
     @router.post("/set-up")
     async def set_up(body: SetUpBody) -> dict[str, Any]:
         person = await known_person(body.manager_id)
+        # Each press of Set up is a new request from Flow. The bar names each manager's
+        # assistant by one Flow id, and the module treats the same id again as the same
+        # call repeated, so a second press is refused here instead.
+        async with demo.module.store.transaction(ORGANISATION_ID) as tx:
+            if await current_assistant(tx, person.id) is not None:
+                raise NotAllowedValue(ALREADY_HAS_ONE)
         await demo.module.flow.set_up(
             ORGANISATION_ID, person.id, ASSISTANT_NAME, flow_id_for(person)
         )

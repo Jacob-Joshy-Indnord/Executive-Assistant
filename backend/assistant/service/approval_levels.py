@@ -31,6 +31,8 @@ class LimitsChange(BaseModel):
 
     people: list[str] | None = None
     per_day: int | None = None
+    projects: list[str] | None = None
+    """Project ids the kind may concern without approval; leave out for any project."""
 
 
 class LevelChange(BaseModel):
@@ -71,6 +73,7 @@ async def approval_request_for(
     count_today: int = 0,
     approved_by_manager: bool = False,
     text: str | None = None,
+    project_ids: list[str] | None = None,
 ) -> ApprovalRequest:
     """What the module sends to Flow's check: the request with the level and limits that apply."""
     level, limits = await level_for(reader, assistant, kind)
@@ -87,6 +90,7 @@ async def approval_request_for(
         count_today=count_today,
         approved_by_manager=approved_by_manager,
         text=text,
+        project_ids=project_ids or [],
     )
 
 
@@ -136,11 +140,16 @@ class ApprovalLevelService:
             "label": spec.label,
             "level": level.value,
             "locked": spec.locked,
-            "limits": {"people": people, "per_day": limits.per_day},
+            "limits": {
+                "people": people,
+                "per_day": limits.per_day,
+                "projects": limits.project_ids,
+            },
             "allowed_limits": {
                 "people": spec.people_limit,
                 "per_day": spec.per_day_limit,
                 "per_day_label": spec.per_day_label,
+                "projects": spec.project_limit,
             },
         }
 
@@ -169,16 +178,38 @@ class ApprovalLevelService:
                 ids.append(found[0].id)
         return ids
 
+    async def _projects(self, viewer: Viewer, project_ids: list[str] | None) -> list[str] | None:
+        """Projects named in a limit, each one the manager can see."""
+        if project_ids is None:
+            return None
+        visible = {p.id for p in await self.boundary.work_data.projects(viewer.person_id)}
+        ids: list[str] = []
+        for project_id in project_ids:
+            if project_id not in visible:
+                raise NotAllowedValue("That project is not one you can see.")
+            if project_id not in ids:
+                ids.append(project_id)
+        return ids
+
     async def change(self, viewer: Viewer, kind: str, change: LevelChange) -> dict[str, Any]:
         """The manager changes one level and its limits."""
         spec = spec_of(kind)
         async with self.store.transaction(viewer.organisation_id) as tx:
             await my_assistant(tx, viewer)  # only the manager gets past here
-        sentence = refusal(spec, change.level, change.limits.people, change.limits.per_day)
+        sentence = refusal(
+            spec,
+            change.level,
+            change.limits.people,
+            change.limits.per_day,
+            change.limits.projects,
+        )
         if sentence:
             raise NotAllowedValue(sentence)
         person_ids = await self._resolve(viewer.organisation_id, change.limits.people)
-        limits = ApprovalLimits(person_ids=person_ids, per_day=change.limits.per_day)
+        project_ids = await self._projects(viewer, change.limits.projects)
+        limits = ApprovalLimits(
+            person_ids=person_ids, per_day=change.limits.per_day, project_ids=project_ids
+        )
 
         async def work(action: Action) -> tuple[ApprovalLevel, ApprovalLimits]:
             assistant = await my_assistant(action.tx, viewer)
@@ -190,6 +221,8 @@ class ApprovalLevelService:
                 details["per_day"] = limits.per_day
             if limits.person_ids is not None:
                 details["people"] = limits.person_ids
+            if limits.project_ids is not None:
+                details["projects"] = limits.project_ids
             if found:
                 await action.change(
                     "assistant.approval_level_changed",

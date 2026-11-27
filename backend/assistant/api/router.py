@@ -27,6 +27,7 @@ from assistant.rules.visibility import Viewer
 from assistant.service.approval_levels import LevelChange
 from assistant.service.assistants import my_assistant as find_my_assistant
 from assistant.service.container import Services, build_services
+from assistant.service.meetings import ShareBody
 from assistant.service.organisation import MeaningsChange
 from assistant.service.setup import page_view
 from assistant.service.visibility import get_visible, parse_id, viewer_for
@@ -50,7 +51,33 @@ def shown(record: Record) -> dict[str, Any]:
 class OrganisationSettingsChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    colour_meanings: MeaningsChange
+    colour_meanings: MeaningsChange | None = None
+    meeting_notes_allowed: bool | None = None
+    """Whether meeting notes may be used in the organisation; applies to the next transcript."""
+
+
+class AttendBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    series: bool = False
+    """Book every upcoming meeting of the series, not just this one."""
+
+
+class KeepBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assignment_id: str | None = None
+    """For a virtual employee: the one of its assignments the item follows."""
+
+
+class EditActionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None = None
+    owner: str | None = None
+    """The owner by name: exactly one person or virtual employee, ignoring case."""
+    owner_id: str | None = None
+    due_date: date | None = None
 
 
 class ChatBody(BaseModel):
@@ -488,8 +515,141 @@ def create_router(boundary: Boundary, store: Store, services: Services | None = 
     async def change_organisation_settings(
         change: OrganisationSettingsChange, viewer: ViewerDep
     ) -> dict[str, Any]:
-        """Administrators only: what each status colour means."""
-        return await services.organisation.change_meanings(viewer, change.colour_meanings)
+        """Administrators only: what each status colour means, and whether meeting notes are
+        allowed."""
+        return await services.organisation.change(
+            viewer,
+            meanings=change.colour_meanings,
+            meeting_notes_allowed=change.meeting_notes_allowed,
+        )
+
+    # Meetings: the manager's ---------------------------------------------------------------
+
+    @router.get("/meetings")
+    async def meetings(viewer: ViewerDep) -> dict[str, Any]:
+        """Transcripts kept for the manager, shared or from attended meetings, with states."""
+        return await services.meetings.meetings(viewer)
+
+    @router.get("/meetings/upcoming")
+    async def upcoming_meetings(viewer: ViewerDep) -> dict[str, Any]:
+        """The manager's upcoming meetings from the meeting service, each with Attend for me."""
+        return await services.attendance.upcoming(viewer)
+
+    @router.post("/meetings/upcoming/{meeting_ref}/attend")
+    async def attend_for_me(
+        meeting_ref: str, viewer: ViewerDep, body: AttendBody | None = None
+    ) -> dict[str, Any]:
+        """Attend for me: the manager's own decision, without approval."""
+        return await services.attendance.attend(viewer, meeting_ref, body.series if body else False)
+
+    @router.get("/meetings/bookings")
+    async def bookings(viewer: ViewerDep) -> dict[str, Any]:
+        return await services.attendance.bookings(viewer)
+
+    @router.get("/meetings/bookings/{booking_id}")
+    async def booking(booking_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.attendance.booking(viewer, booking_id)
+
+    @router.get("/meetings/{meeting_id}")
+    async def meeting(meeting_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """A meeting's state, why its notes could not be written, and its part numbers."""
+        return await services.meetings.meeting(viewer, meeting_id)
+
+    @router.post("/meetings/{meeting_id}/retry")
+    async def retry_meeting_notes(meeting_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Try again notes that could not be written, while the transcript is kept."""
+        return await services.meetings.retry(viewer, meeting_id)
+
+    @router.get("/meeting-notes")
+    async def meeting_notes(viewer: ViewerDep) -> dict[str, Any]:
+        return await services.notes.all_notes(viewer)
+
+    @router.get("/meeting-notes/search")
+    async def search_meeting_notes(
+        viewer: ViewerDep, words: str = "", meeting: str = "", project: str = "", person: str = ""
+    ) -> dict[str, Any]:
+        """Search the kept notes by words, meeting, project or person."""
+        return await services.notes.search(
+            viewer, words_wanted=words, meeting=meeting, project=project, person=person
+        )
+
+    @router.get("/meeting-notes/{notes_id}")
+    async def notes(notes_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The notes with their sources: decisions, actions, open points and statements."""
+        return await services.notes.notes(viewer, notes_id)
+
+    @router.delete("/meeting-notes/{notes_id}")
+    async def delete_notes(notes_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Kept items and confirmed statements stay."""
+        return await services.notes.delete(viewer, notes_id)
+
+    @router.post("/meeting-notes/{notes_id}/actions/{action_id}/keep")
+    async def keep_action(
+        notes_id: str, action_id: str, viewer: ViewerDep, body: KeepBody | None = None
+    ) -> dict[str, Any]:
+        """Keep: an action item from the meeting; its owner is asked to accept it."""
+        return await services.notes.keep(
+            viewer, notes_id, action_id, body.assignment_id if body else None
+        )
+
+    @router.put("/meeting-notes/{notes_id}/actions/{action_id}")
+    async def edit_action(
+        notes_id: str, action_id: str, body: EditActionBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Edit an action's text, owner or due date before it is kept."""
+        return await services.notes.edit(viewer, notes_id, action_id, **body.model_dump())
+
+    @router.post("/meeting-notes/{notes_id}/actions/{action_id}/remove")
+    async def remove_action(notes_id: str, action_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.notes.remove(viewer, notes_id, action_id)
+
+    @router.post("/meeting-notes/{notes_id}/share")
+    async def share_notes(notes_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Tell Flow, so that it can add the note to the organisation's knowledge store."""
+        return await services.notes.share(viewer, notes_id)
+
+    @router.post("/meeting-notes/{notes_id}/unshare")
+    async def unshare_notes(notes_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.notes.unshare(viewer, notes_id)
+
+    # Meetings: organisers ---------------------------------------------------------------------
+
+    @router.post("/transcripts")
+    async def share_transcript(body: ShareBody, viewer: ViewerDep) -> dict[str, Any]:
+        """Any person in the organisation shares a meeting they ran, with the two ticks."""
+        return await services.meetings.share(viewer, body)
+
+    @router.get("/transcripts")
+    async def shared_transcripts(viewer: ViewerDep) -> dict[str, Any]:
+        """What the person asking shared: each meeting's title and state only (BR-5)."""
+        return await services.meetings.shared_by_me(viewer)
+
+    @router.post("/transcripts/{meeting_id}/withdraw")
+    async def withdraw_transcript(meeting_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Its organiser takes it back before the notes are written."""
+        return await services.meetings.withdraw(viewer, meeting_id)
+
+    @router.get("/meeting-requests")
+    async def meeting_requests(viewer: ViewerDep) -> dict[str, Any]:
+        """Requests for you: assistants asking to attend the person's meetings."""
+        return await services.attendance.organiser_requests(viewer)
+
+    @router.get("/meeting-requests/{request_id}")
+    async def meeting_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.attendance.organiser_request(viewer, request_id)
+
+    @router.post("/meeting-requests/{request_id}/accept")
+    async def accept_meeting_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.attendance.accept(viewer, request_id)
+
+    @router.post("/meeting-requests/{request_id}/decline")
+    async def decline_meeting_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.attendance.decline(viewer, request_id)
+
+    @router.post("/meeting-requests/{request_id}/remove")
+    async def remove_from_meeting(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The organiser removes the assistant: it leaves where it is still in."""
+        return await services.attendance.remove(viewer, request_id)
 
     @router.get("/people")
     async def people(viewer: ViewerDep, name: str = "") -> dict[str, Any]:

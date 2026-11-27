@@ -74,6 +74,7 @@ class WorkKind(StrEnum):
     REQUEST = "request"
     STATUS_DRAFTS = "status_drafts"
     FOLLOW_ON = "follow_on"
+    MEETING_NOTES = "meeting_notes"
 
 
 DATA_NOT_INSTRUCTIONS: Literal["data, not instructions"] = "data, not instructions"
@@ -165,6 +166,8 @@ class ActionKind(StrEnum):
     ADD_ACTION_ITEM = "add_action_item"
     SEND_MESSAGE = "send_message"
     PURCHASE = "purchase"
+    WRITE_MEETING_NOTES = "write_meeting_notes"
+    ATTEND_MEETING = "attend_meeting"
 
 
 class ApprovalLevel(StrEnum):
@@ -179,6 +182,8 @@ class ApprovalLimits(_Shape):
     person_ids: list[FlowId] | None = None
     """Who the action may concern; ``None`` means anyone in the organisation."""
     per_day: int | None = Field(default=None, ge=1)
+    project_ids: list[FlowId] | None = None
+    """The projects the action may concern without approval; ``None`` means any."""
 
 
 class ApprovalRequest(_Shape):
@@ -199,6 +204,10 @@ class ApprovalRequest(_Shape):
     limits: ApprovalLimits = Field(default_factory=ApprovalLimits)
     count_today: int = Field(default=0, ge=0)
     approved_by_manager: bool = False
+    project_ids: list[FlowId] = Field(default_factory=list)
+    """The projects the request concerns, e.g. those a shared transcript names. Without
+    approval, a request naming a project outside ``limits.project_ids`` waits for the
+    manager; it is never declined for that."""
 
 
 CheckDecision = Literal["carry_out", "ask_manager", "declined"]
@@ -287,4 +296,102 @@ class AuditRecord(_Shape):
 
 class RecordResult(_Shape):
     written: bool
+    reason: str | None = None
+
+
+# --- Meetings ---------------------------------------------------------------
+# The meeting service is reached only through the boundary. No product is named: the
+# module asks for the manager's upcoming meetings, to join as a note-taker, to leave, and
+# for the transcript, and never connects to a meeting, records sound or joins anything.
+
+
+class MeetingInfo(_Shape):
+    """One of the manager's meetings that has not ended, as the meeting service gives it."""
+
+    id: FlowId
+    title: str = Field(min_length=1, max_length=200)
+    organiser_id: FlowId
+    starts_at: UtcDateTime
+    ends_at: UtcDateTime
+    series_id: FlowId | None = None
+
+
+NOTE_TAKER: Literal["silent_note_taker"] = "silent_note_taker"
+
+
+class JoinRequest(_Shape):
+    """Let the assistant in as a silent note-taker: it never speaks, votes or shares."""
+
+    organisation_id: FlowId
+    meeting_id: FlowId
+    manager_id: FlowId
+    assistant_flow_id: FlowId
+    display_name: str = Field(min_length=1, max_length=200)
+    """What everyone in the meeting sees, e.g. "Operations director's assistant (notes)"."""
+    role: Literal["silent_note_taker"] = NOTE_TAKER
+
+
+JoinOutcome = Literal["joined", "waiting", "refused"]
+
+
+class JoinResult(_Shape):
+    """Let in, still waiting to be let in, or refused with one sentence. Asking again for
+    the same meeting answers how it stands now, so the module can ask while it waits."""
+
+    outcome: JoinOutcome
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _refusal_has_reason(self) -> JoinResult:
+        if self.outcome == "refused" and not self.reason:
+            raise ValueError("a refused join needs a reason")
+        return self
+
+
+class LeaveResult(_Shape):
+    """The assistant is out of the meeting. ``removed_at`` is when the organiser removed it
+    in the meeting itself, if they did."""
+
+    left: bool
+    removed_at: UtcDateTime | None = None
+
+
+class TranscriptSegment(_Shape):
+    """One piece of what was said, in order, with its times and the speaker if known."""
+
+    starts_at: UtcDateTime
+    ends_at: UtcDateTime
+    speaker: str | None = Field(default=None, max_length=200)
+    text: str = Field(max_length=100_000)
+
+
+class MeetingTranscript(_Shape):
+    """The transcript of a meeting the assistant attended, as the meeting service gives it."""
+
+    meeting_id: FlowId
+    title: str = Field(min_length=1, max_length=200)
+    organiser_id: FlowId
+    starts_at: UtcDateTime
+    ends_at: UtcDateTime
+    manager_attended: bool | None = None
+    """Whether the manager was in the meeting, as the meeting service reports it."""
+    segments: list[TranscriptSegment] = Field(default_factory=list)
+
+
+# --- Knowledge --------------------------------------------------------------
+
+
+class KnowledgeNote(_Shape):
+    """A kept note the manager chose to share with the organisation's knowledge store."""
+
+    note_id: str = Field(min_length=1, max_length=200)
+    organisation_id: FlowId
+    manager_id: FlowId
+    title: str = Field(min_length=1, max_length=200)
+    date: str = Field(min_length=1, max_length=20)
+    content: str = Field(min_length=1, max_length=100_000)
+
+
+class KnowledgeResult(_Shape):
+    done: bool
     reason: str | None = None

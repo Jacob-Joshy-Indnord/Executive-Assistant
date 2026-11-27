@@ -1,8 +1,10 @@
-"""What the colours mean (Story 2.3).
+"""What the colours mean (Story 2.3), and whether meeting notes are allowed (part 2).
 
 Only an administrator opens or changes the organisation settings. Owners see
 each colour with its meaning, if one has been written, when they give or
-confirm a status; a colour without a meaning can still be chosen.
+confirm a status; a colour without a meaning can still be chosen. Meeting
+notes are not allowed until an administrator allows them; the choice applies
+to the next transcript shared, and notes that already exist stay.
 """
 
 from __future__ import annotations
@@ -52,6 +54,12 @@ async def settings_of(
     return await reader.get(OrganisationSettings, settings_id(organisation_id))
 
 
+async def meeting_notes_allowed(reader: Transaction | Action, organisation_id: str) -> bool:
+    """Whether transcripts may be used for notes in the organisation (default No)."""
+    settings = await settings_of(reader, organisation_id)
+    return bool(settings and settings.meeting_notes_allowed)
+
+
 async def colour_choices(
     reader: Transaction | Action, organisation_id: str
 ) -> list[dict[str, Any]]:
@@ -66,6 +74,7 @@ def settings_view(organisation_id: str, settings: OrganisationSettings | None) -
     return {
         "organisation_id": organisation_id,
         "colour_meanings": {colour: meanings.get(colour) for colour in COLOURS},
+        "meeting_notes_allowed": bool(settings and settings.meeting_notes_allowed),
     }
 
 
@@ -86,30 +95,45 @@ class OrganisationService:
         return settings_view(viewer.organisation_id, current)
 
     async def change_meanings(self, viewer: Viewer, change: MeaningsChange) -> dict[str, Any]:
-        self._administrators_only(viewer)
-        meanings = change.meanings()
-        org = viewer.organisation_id
+        return await self.change(viewer, meanings=change)
 
-        async def work(action: Action) -> OrganisationSettings:
-            details = {"colours_with_meaning": sorted(meanings)}
+    async def change(
+        self,
+        viewer: Viewer,
+        *,
+        meanings: MeaningsChange | None = None,
+        meeting_notes_allowed: bool | None = None,
+    ) -> dict[str, Any]:
+        """An administrator changes the colour meanings, whether meeting notes are allowed,
+        or both. What is left out stays as it was."""
+        self._administrators_only(viewer)
+        org = viewer.organisation_id
+        changes: dict[str, Any] = {}
+        details: dict[str, Any] = {}
+        name = "assistant.organisation_settings_changed"
+        if meanings is not None:
+            changes["colour_meanings"] = meanings.meanings()
+            details["colours_with_meaning"] = sorted(changes["colour_meanings"])
+            name = "assistant.colour_meanings_changed"
+        if meeting_notes_allowed is not None:
+            changes["meeting_notes_allowed"] = meeting_notes_allowed
+            details["meeting_notes_allowed"] = meeting_notes_allowed
+            if meanings is None:
+                name = "assistant.meeting_notes_setting_changed"
+
+        async def work(action: Action) -> OrganisationSettings | None:
             current = await settings_of(action, org)
             if current is None:
                 return await action.add(
-                    "assistant.colour_meanings_changed",
+                    name,
                     OrganisationSettings(
-                        id=settings_id(org),
-                        organisation_id=org,
-                        created_at=action.now,
-                        colour_meanings=meanings,
+                        id=settings_id(org), organisation_id=org, created_at=action.now, **changes
                     ),
                     details=details,
                 )
-            return await action.change(
-                "assistant.colour_meanings_changed",
-                current,
-                current.evolve(colour_meanings=meanings),
-                details=details,
-            )
+            if not changes:
+                return current
+            return await action.change(name, current, current.evolve(**changes), details=details)
 
         saved = await perform(self.boundary, self.store, org, viewer.person_id, work)
         return settings_view(org, saved)

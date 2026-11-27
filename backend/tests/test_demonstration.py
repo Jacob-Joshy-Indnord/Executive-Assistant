@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from httpx import Response
 
@@ -28,6 +27,7 @@ from standins.sample import (
     ORGANISATION_ADMINISTRATOR,
     SALES_DIRECTOR,
 )
+from tests.test_api_visibility import _walk
 
 BACKEND = Path(__file__).resolve().parents[1]
 OPS, LEGAL, SALES, ADMIN = (
@@ -245,7 +245,7 @@ class BarNotInModuleTest(unittest.TestCase):
 
     def test_module_router_has_no_bar_addresses(self) -> None:
         app = create_app()
-        paths = [r.path for r in app.demo.app.routes if isinstance(r, APIRoute)]
+        paths = [path for _, path in _walk(app.demo.app.routes)]
         self.assertTrue(paths)
         self.assertTrue(all(p.startswith(PREFIX) for p in paths))
         self.assertFalse(any(p.startswith(DEMO_PREFIX) for p in paths))

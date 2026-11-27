@@ -29,6 +29,12 @@ from assistant.models.boundary import (
     CarryOutResult,
     CheckOutcome,
     InputPack,
+    JoinRequest,
+    JoinResult,
+    KnowledgeNote,
+    KnowledgeResult,
+    LeaveResult,
+    MeetingInfo,
     Notice,
     NoticeResult,
     PackInput,
@@ -66,6 +72,8 @@ class BoundaryUnderTest:
     unique_display_name: str
     """The display name of exactly one person or virtual employee of the organisation."""
     assistant_flow_id: str
+    meeting_manager_id: str | None = None
+    """A manager with at least one upcoming meeting; ``manager_id`` when left out."""
 
 
 class BoundaryContract(_Base):
@@ -266,6 +274,93 @@ class BoundaryContract(_Base):
         result = await self.b.approval.undo(self._request())
         self.assertFalse(result.done)
         self.assertTrue(is_plain_sentence(result.reason), result.reason)
+
+    async def test_approval_without_approval_outside_a_project_limit_waits(self) -> None:
+        """Part 2: outside the projects a kind is limited to, a request is never carried out
+        without approval, and it is not declined for that either."""
+        outcome = await self._check(
+            kind=ActionKind.WRITE_MEETING_NOTES,
+            level=ApprovalLevel.WITHOUT_APPROVAL,
+            limits=ApprovalLimits(project_ids=["project-inside"]),
+            project_ids=["project-inside", "project-outside"],
+        )
+        self.assertEqual(outcome.outcome, "ask_manager")
+
+    # Meetings (part 2) ------------------------------------------------------
+
+    async def _upcoming(self) -> list[MeetingInfo]:
+        manager = self.subject.meeting_manager_id or self.subject.manager_id
+        meetings = await self.b.meetings.upcoming(manager)
+        self.assertTrue(meetings, "the contract needs a manager with an upcoming meeting")
+        return meetings
+
+    def _join(self, meeting_id: str) -> JoinRequest:
+        return JoinRequest(
+            organisation_id=self.subject.organisation_id,
+            meeting_id=meeting_id,
+            manager_id=self.subject.meeting_manager_id or self.subject.manager_id,
+            assistant_flow_id=self.subject.assistant_flow_id,
+            display_name="A manager's assistant (notes)",
+        )
+
+    async def test_meetings_upcoming_have_organiser_start_end_and_series(self) -> None:
+        now = await self.b.clock.now()
+        for meeting in await self._upcoming():
+            self.assertIsInstance(meeting, MeetingInfo)
+            await self._assert_utc_recent(meeting.starts_at)
+            self.assertLess(meeting.starts_at, meeting.ends_at)
+            self.assertGreater(meeting.ends_at, now)  # upcoming: not ended
+            self.assertTrue(meeting.organiser_id)
+
+    async def test_meetings_for_someone_unknown_are_none(self) -> None:
+        self.assertEqual(await self.b.meetings.upcoming(f"no-such-person-{uuid4()}"), [])
+
+    async def test_meetings_join_answers_and_asking_again_is_safe(self) -> None:
+        meeting = (await self._upcoming())[0]
+        first = await self.b.meetings.join(self._join(meeting.id))
+        again = await self.b.meetings.join(self._join(meeting.id))
+        for result in (first, again):
+            self.assertIsInstance(result, JoinResult)
+            if result.outcome == "refused":
+                self.assertTrue(is_plain_sentence(result.reason), result.reason)
+        if first.outcome == "joined":
+            self.assertEqual(again.outcome, "joined")
+
+    async def test_meetings_join_as_a_silent_note_taker_only(self) -> None:
+        self.assertEqual(self._join("m").role, "silent_note_taker")
+        with self.assertRaises(ValueError):
+            JoinRequest.model_validate({**self._join("m").model_dump(), "role": "speaker"})
+
+    async def test_meetings_leave_is_idempotent(self) -> None:
+        meeting = (await self._upcoming())[0]
+        await self.b.meetings.join(self._join(meeting.id))
+        for _ in range(2):
+            result = await self.b.meetings.leave(meeting.id, self.subject.assistant_flow_id)
+            self.assertIsInstance(result, LeaveResult)
+            self.assertTrue(result.left)
+
+    async def test_meetings_no_transcript_for_a_meeting_not_attended(self) -> None:
+        missing = await self.b.meetings.transcript(f"no-meeting-{uuid4()}", "no-assistant")
+        self.assertIsNone(missing)
+
+    # Knowledge (part 2) -----------------------------------------------------
+
+    async def test_knowledge_add_and_remove_are_idempotent(self) -> None:
+        note = KnowledgeNote(
+            note_id=str(uuid4()),
+            organisation_id=self.subject.organisation_id,
+            manager_id=self.subject.manager_id,
+            title="A meeting",
+            date="2026-11-20",
+            content="Decision: something was decided (part 1)",
+        )
+        for _ in range(2):
+            added = await self.b.knowledge.add(note)
+            self.assertIsInstance(added, KnowledgeResult)
+            self.assertTrue(added.done)
+        for _ in range(2):
+            removed = await self.b.knowledge.remove(note.organisation_id, note.note_id)
+            self.assertTrue(removed.done)
 
     # Notices, records, clock ------------------------------------------------
 

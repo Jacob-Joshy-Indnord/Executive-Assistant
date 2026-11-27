@@ -11,6 +11,7 @@ from assistant.api.router import PREFIX
 from assistant.errors import NotAllowedValue
 from assistant.models.preferences import PreferencesForm, Weekday
 from assistant.models.records import AssistantRecord, AssistantState
+from assistant.rules.approval_kinds import ACTION_KINDS
 from assistant.rules.lifecycle import is_running
 from assistant.rules.sentences import is_plain_sentence
 from assistant.rules.settings import DEFAULTS, effective_settings, form_answers
@@ -164,12 +165,12 @@ class SetUpTest(unittest.TestCase):
 
     def test_set_up_is_recorded(self) -> None:
         names = [r.name for r in self.b.standins.records.written]
-        starting_levels = ["assistant.approval_level_set"] * 4
+        starting_levels = ["assistant.approval_level_set"] * len(ACTION_KINDS)
         self.assertEqual(names, ["assistant.assistant_set_up", *starting_levels])
         self.b.call("POST", f"{PREFIX}/preferences/skip", MANAGER)
         names = [r.name for r in self.b.standins.records.written]
         self.assertEqual(
-            names[5:],
+            names[1 + len(ACTION_KINDS) :],
             [
                 "assistant.preferences_created",
                 "assistant.form_skipped",

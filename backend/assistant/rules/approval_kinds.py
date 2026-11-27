@@ -22,6 +22,8 @@ class KindSpec:
     """A locked kind keeps its starting level; no one can change it."""
     people_limit: bool = False
     per_day_limit: bool = False
+    project_limit: bool = False
+    """The manager can limit it to some projects: outside them, it waits for approval."""
     default_per_day: int | None = None
     per_day_label: str = ""
 
@@ -79,10 +81,29 @@ register(
         locked=True,
     )
 )
+register(
+    KindSpec(
+        ActionKind.WRITE_MEETING_NOTES,
+        "Write notes from a shared transcript",
+        ApprovalLevel.WITH_APPROVAL,
+        project_limit=True,
+    )
+)
+register(
+    KindSpec(
+        ActionKind.ATTEND_MEETING,
+        "Attend a meeting and take notes",
+        ApprovalLevel.WITH_APPROVAL,
+    )
+)
 
 
 def refusal(
-    spec: KindSpec, level: ApprovalLevel, people: list[str] | None, per_day: int | None
+    spec: KindSpec,
+    level: ApprovalLevel,
+    people: list[str] | None,
+    per_day: int | None,
+    projects: list[str] | None = None,
 ) -> str | None:
     """Why this change makes no sense, in one sentence; ``None`` when it may be made."""
     if spec.locked:
@@ -91,8 +112,12 @@ def refusal(
         return "This kind of action has no list of people."
     if per_day is not None and not spec.per_day_limit:
         return "This kind of action has no daily number."
+    if projects is not None and not spec.project_limit:
+        return "This kind of action has no list of projects."
     if people is not None and not people:
         return "Name at least one person, or leave the list out."
+    if projects is not None and not projects:
+        return "Name at least one project, or leave the list out."
     if per_day is not None and per_day < 1:
         return "A daily number must be at least 1."
     if per_day is not None and per_day > MAX_PER_DAY:

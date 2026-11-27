@@ -26,7 +26,11 @@ MAX_FOLLOW_UPS = 5
 CHOICE_LIMIT = 100
 SHOWN_LIMIT = 60
 
-FieldKind = Literal["text", "name", "source", "date", "times", "choices", "item", "project"]
+FieldKind = Literal[
+    "text", "name", "source", "date", "times", "choices", "item", "project", "line", "lines"
+]
+MAX_NOTE_LINES = 200
+"""Lines of one kind (decisions, actions...) handled in one set of notes."""
 
 
 @dataclass(frozen=True)
@@ -105,6 +109,25 @@ register(
 )
 register(
     ToolSpec(
+        "meeting_notes",
+        (
+            F("meeting", "text", 200),
+            F("summary", "line", required=False),
+            F("decisions", "lines", required=False),
+            F("actions", "lines", required=False),
+            F("open_points", "lines", required=False),
+            F("statements", "lines", required=False),
+        ),
+    )
+)
+register(
+    ToolSpec(
+        "attend_meeting",
+        (F("meeting", "text", 200), F("reason", "text", REASON_LIMIT), F("source", "source")),
+    )
+)
+register(
+    ToolSpec(
         "raise_attention",
         (
             F("subject", "text", ACTION_ITEM_LIMIT),
@@ -164,6 +187,16 @@ def _parse(spec: FieldSpec, value: Any) -> tuple[Any, str | None]:
             return date.fromisoformat(str(value)), None
         except ValueError:
             return None, f"its {name} is not a date"
+    if spec.kind == "line":
+        if not isinstance(value, dict):
+            return None, f"its {name} is not a line"
+        return value, None
+    if spec.kind == "lines":
+        if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+            return None, f"its {name} are not a list of lines"
+        if len(value) > MAX_NOTE_LINES:
+            return None, f"it has more than {MAX_NOTE_LINES} {name}"
+        return list(value), None
     if spec.kind == "item":
         try:
             return UUID(str(value)), None

@@ -22,6 +22,13 @@ from assistant.models.boundary import (
     AuditRecord,
     CarryOutResult,
     CheckOutcome,
+    JoinRequest,
+    JoinResult,
+    KnowledgeNote,
+    KnowledgeResult,
+    LeaveResult,
+    MeetingInfo,
+    MeetingTranscript,
     Notice,
     NoticeResult,
     Person,
@@ -106,6 +113,47 @@ class Records(Protocol):
 
 
 @runtime_checkable
+class Meetings(Protocol):
+    """The meeting service, reached only through Flow. The module asks; it never connects
+    to a meeting, records sound or joins anything itself."""
+
+    async def upcoming(self, manager_id: str) -> list[MeetingInfo]:
+        """The manager's meetings that have not ended. A cancelled meeting is not listed."""
+        ...
+
+    async def join(self, request: JoinRequest) -> JoinResult:
+        """Let the assistant in as a silent note-taker under ``request.display_name``.
+
+        Asking again for the same meeting and assistant joins nothing more and answers how
+        it stands now: joined, still waiting to be let in, or refused.
+        """
+        ...
+
+    async def leave(self, meeting_id: str, assistant_flow_id: str) -> LeaveResult:
+        """Take the assistant out of the meeting. Idempotent: leaving again is harmless."""
+        ...
+
+    async def transcript(
+        self, meeting_id: str, assistant_flow_id: str
+    ) -> MeetingTranscript | None:
+        """The transcript of a meeting the assistant attended, or ``None`` while there is none."""
+        ...
+
+
+@runtime_checkable
+class Knowledge(Protocol):
+    """The organisation's knowledge store, told only of notes the manager chose to share."""
+
+    async def add(self, note: KnowledgeNote) -> KnowledgeResult:
+        """Add or replace a shared note. Idempotent per ``note.note_id``."""
+        ...
+
+    async def remove(self, organisation_id: str, note_id: str) -> KnowledgeResult:
+        """Take a note back. Idempotent: removing a note that is not there answers done."""
+        ...
+
+
+@runtime_checkable
 class Clock(Protocol):
     async def now(self) -> datetime:
         """The time now, in UTC."""
@@ -123,6 +171,8 @@ class Boundary:
     notices: Notices
     records: Records
     clock: Clock
+    meetings: Meetings
+    knowledge: Knowledge
 
     def __post_init__(self) -> None:
         expected: dict[str, type] = {
@@ -133,6 +183,8 @@ class Boundary:
             "notices": Notices,
             "records": Records,
             "clock": Clock,
+            "meetings": Meetings,
+            "knowledge": Knowledge,
         }
         for field_name, protocol in expected.items():
             if not isinstance(getattr(self, field_name), protocol):

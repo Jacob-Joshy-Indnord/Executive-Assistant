@@ -356,6 +356,9 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
         checks=[_meanings_written_only_by_administrators],
     ),
     ("GET", "/api/assistant/colours"): Expectation(_no_params, EVERYONE),
+    ("GET", "/api/assistant/my-statements"): Expectation(_no_params, EVERYONE),
+    ("GET", "/api/assistant/waiting-count"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/people"): Expectation(_no_params, EVERYONE),
 }
 
 

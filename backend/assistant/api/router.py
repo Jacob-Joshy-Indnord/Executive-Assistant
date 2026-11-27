@@ -237,6 +237,11 @@ def create_router(
         """Only the manager, from their own page, changes a level (BR-7)."""
         return await services.levels.change(viewer, kind, change)
 
+    @router.get("/waiting-count")
+    async def waiting_count(viewer: ViewerDep) -> dict[str, Any]:
+        """For Flow's top bar: how many things wait for the manager."""
+        return await services.manager_notices.waiting_count(viewer)
+
     @router.get("/assistants/{assistant_id}")
     async def assistant(assistant_id: str, viewer: ViewerDep) -> dict[str, Any]:
         return await read_one(viewer, AssistantRecord, assistant_id)
@@ -338,17 +343,23 @@ def create_router(
     @router.post("/action-items/{item_id}/propose-date")
     async def propose_date(item_id: str, body: OtherDateBody, viewer: ViewerDep) -> dict[str, Any]:
         """The owner proposes another date, with a reason."""
-        return await services.items.propose_date(viewer, item_id, body.due_date, body.reason)
+        answer = await services.items.propose_date(viewer, item_id, body.due_date, body.reason)
+        await services.manager_notices.send_ready_in(viewer.organisation_id)
+        return answer
 
     @router.post("/action-items/{item_id}/decline")
     async def decline_item(item_id: str, body: ReasonBody, viewer: ViewerDep) -> dict[str, Any]:
         """The owner declines, with a reason."""
-        return await services.items.decline(viewer, item_id, body.reason)
+        answer = await services.items.decline(viewer, item_id, body.reason)
+        await services.manager_notices.send_ready_in(viewer.organisation_id)
+        return answer
 
     @router.post("/action-items/{item_id}/updates")
     async def give_update(item_id: str, body: UpdateBody, viewer: ViewerDep) -> dict[str, Any]:
         """The owner's update in one step: On track, Done or Blocked, a note, another date."""
-        return await services.items.give_update(viewer, item_id, **body.model_dump())
+        answer = await services.items.give_update(viewer, item_id, **body.model_dump())
+        await services.manager_notices.send_ready_in(viewer.organisation_id)
+        return answer
 
     @router.put("/action-items/{item_id}/follow-ups")
     async def set_follow_ups(
@@ -397,6 +408,11 @@ def create_router(
     @router.get("/person-requests/{request_id}")
     async def person_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
         return await read_one(viewer, PersonRequest, request_id)
+
+    @router.get("/my-statements")
+    async def my_statements(viewer: ViewerDep) -> dict[str, Any]:
+        """The latest version of each confirmed statement the person asking owns."""
+        return await services.status.my_statements(viewer)
 
     @router.get("/statements/{statement_id}")
     async def statement(statement_id: str, viewer: ViewerDep) -> dict[str, Any]:
@@ -480,6 +496,23 @@ def create_router(
     ) -> dict[str, Any]:
         """Administrators only: what each status colour means."""
         return await services.organisation.change_meanings(viewer, change.colour_meanings)
+
+    @router.get("/people")
+    async def people(viewer: ViewerDep, name: str = "") -> dict[str, Any]:
+        """People and virtual employees of the organisation called exactly ``name``, ignoring
+        case (BR-12), so that a screen can name a person instead of addressing them."""
+        found = (
+            await boundary.people.find_by_name(viewer.organisation_id, name.strip())
+            if name.strip()
+            else []
+        )
+        return {
+            "people": [
+                {"id": p.id, "display_name": p.display_name, "kind": p.kind}
+                for p in found
+                if p.organisation_id == viewer.organisation_id
+            ]
+        }
 
     @router.get("/colours")
     async def colours(viewer: ViewerDep) -> list[dict[str, Any]]:

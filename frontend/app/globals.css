@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Section 13.4 colours as RGB channels, so each brand colour accepts an opacity.
+   Generated from lib/assistant/tokens.ts; tests/tokens.test.ts keeps them the same. */
+:root {
+  --brand-bg: 247 248 250;
+  --brand-panel: 255 255 255;
+  --brand-ink: 19 22 27;
+  --brand-ink-muted: 91 100 114;
+  --brand-border: 230 232 236;
+  --brand-accent: 79 70 229;
+  --brand-accent-soft: 237 236 252;
+  --brand-accent-soft-strong: 223 222 250;
+  --brand-primary: 79 70 229;
+  --brand-primary-fg: 255 255 255;
+  --brand-success: 15 157 122;
+  --brand-attention: 255 107 74;
+  --brand-gold: 196 122 0;
+  --brand-zone-good: 15 157 122;
+  --brand-zone-good-ink: 11 122 95;
+  --brand-zone-watch: 196 122 0;
+  --brand-zone-watch-ink: 143 89 0;
+  --brand-zone-act: 209 42 78;
+  --brand-zone-act-ink: 168 32 62;
+  color-scheme: light;
+}
+.dark {
+  --brand-bg: 17 19 32;
+  --brand-panel: 24 26 42;
+  --brand-ink: 236 238 248;
+  --brand-ink-muted: 160 163 191;
+  --brand-border: 144 153 215;
+  --brand-accent: 168 164 255;
+  --brand-accent-soft: 37 38 70;
+  --brand-accent-soft-strong: 47 47 90;
+  --brand-primary: 99 93 224;
+  --brand-primary-fg: 255 255 255;
+  --brand-success: 79 208 140;
+  --brand-attention: 255 110 104;
+  --brand-gold: 231 166 59;
+  --brand-zone-good: 40 168 148;
+  --brand-zone-good-ink: 127 220 199;
+  --brand-zone-watch: 196 133 31;
+  --brand-zone-watch-ink: 245 201 122;
+  --brand-zone-act: 226 64 76;
+  --brand-zone-act-ink: 255 154 163;
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    @apply bg-brand-bg text-brand-ink;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply min-h-screen bg-brand-bg font-sans text-ui text-brand-ink antialiased;
+  }
+  *:focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-brand-accent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

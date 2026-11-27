@@ -78,6 +78,7 @@ class RecordShapesTest(unittest.TestCase):
                 "action_item",
                 "update",
                 "person_request",
+                "manager_notice_mark",
                 "followed_project",
                 "statement_draft",
                 "confirmed_statement",

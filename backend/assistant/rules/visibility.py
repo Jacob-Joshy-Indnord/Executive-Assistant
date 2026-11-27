@@ -87,6 +87,7 @@ VISIBILITY: dict[str, Rule] = {
     "organisation_control": administrators_only,
     "due_step_claim": MANAGER_ONLY,
     "kept_result": MANAGER_ONLY,
+    "manager_notice_mark": MANAGER_ONLY,
 }
 
 

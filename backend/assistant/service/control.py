@@ -54,6 +54,8 @@ class ControlService:
         self.result_handler: ResultHandler = note_result
         self.on_caught_up: list[CaughtUpHook] = []
         """Run after a resume has caught up, e.g. to start work that waited meanwhile."""
+        self.after_result: list[CaughtUpHook] = []
+        """Run after a result of the assistant was handled, e.g. to tell the manager."""
 
     # The manager -------------------------------------------------------------
 
@@ -156,6 +158,8 @@ class ControlService:
             return "ignored"  # the same result again, already kept
         if outcome == "handled" and assistant is not None:
             await self.result_handler(assistant, result)
+            for hook in self.after_result:
+                await hook(assistant)
         return outcome
 
     async def catch_up(self, assistant: AssistantRecord) -> None:

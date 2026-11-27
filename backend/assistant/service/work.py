@@ -99,7 +99,8 @@ def slot_id(assistant: AssistantRecord) -> UUID:
 
 
 def work_summary(work: PieceOfWork) -> dict[str, Any]:
-    """A piece of work as the manager sees it: its state, any reason, and what was refused."""
+    """A piece of work as the manager sees it: its state, its reply, any reason, and what was
+    refused."""
     return {
         "id": str(work.id),
         "kind": work.work_kind.value,
@@ -108,6 +109,7 @@ def work_summary(work: PieceOfWork) -> dict[str, Any]:
         "can_retry": work.state in RETRYABLE,
         "refused_count": len(work.refused),
         "refused": list(work.refused),
+        "reply": work.reply,
         "created_at": work.created_at.isoformat(),
         "finished_at": work.finished_at.isoformat() if work.finished_at else None,
     }

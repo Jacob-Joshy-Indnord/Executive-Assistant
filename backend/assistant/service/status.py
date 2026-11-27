@@ -831,6 +831,35 @@ class StatusService:
         )
         return await self.statement(viewer, str(statement.id))
 
+    async def my_statements(self, viewer: Viewer) -> dict[str, Any]:
+        """The latest confirmed version of each statement the person asking owns, for each
+        manager who follows the project, so that they can add a correction."""
+        async with self.store.transaction(viewer.organisation_id) as tx:
+            found = await find_visible(tx, viewer, ConfirmedStatement, owner_id=viewer.person_id)
+            heads: list[tuple[ConfirmedStatement, AssistantRecord, str | None]] = []
+            for key in sorted({(s.assistant_id, s.project_id) for s in found}, key=str):
+                assistant = await tx.get(AssistantRecord, key[0] or UUID(int=0))
+                if assistant is None or assistant.state is AssistantState.ENDED:
+                    continue
+                latest = await latest_statement(tx, assistant, key[1])
+                if latest is None or latest.owner_id != viewer.person_id:
+                    continue
+                followed = await followed_of(tx, assistant, key[1])
+                heads.append((latest, assistant, followed.project_name if followed else None))
+        shown = []
+        for latest, assistant, project_name in sorted(
+            heads, key=lambda h: h[0].created_at, reverse=True
+        ):
+            manager = await self.boundary.people.person(assistant.manager_id)
+            view = await self.statement(viewer, str(latest.id))
+            view["project_name"] = project_name
+            view["for"] = {
+                "id": assistant.manager_id,
+                "display_name": manager.display_name if manager else None,
+            }
+            shown.append(view)
+        return {"count": len(shown), "statements": shown}
+
     async def statement(self, viewer: Viewer, raw_id: str) -> dict[str, Any]:
         """A confirmed statement for its owner or the manager: for a correction, who made
         it, when and which points changed; never the wording the owner did not confirm."""

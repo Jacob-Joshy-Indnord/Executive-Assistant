@@ -181,8 +181,9 @@ class FollowedProjectsTest(EpicFive, unittest.IsolatedAsyncioTestCase):
         await self.run_due()
         self.assertIsNone(await self.followed(VENDOR))
         self.assertIsNone(self.project(VENDOR))
+        dropped = [t for t in self.notices_to(MANAGER) if "no longer visible" in t]
         self.assertEqual(
-            self.notices_to(MANAGER),
+            dropped,
             ["Vendor consolidation is no longer visible to you, so it has left your "
              "followed projects."],  # fmt: skip
         )

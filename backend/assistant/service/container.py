@@ -14,6 +14,7 @@ from assistant.service.decisions import DecisionService
 from assistant.service.due import DUE_STEPS, DueRunner, DueStepRegistry
 from assistant.service.intake import ToolIntake
 from assistant.service.items import ItemService
+from assistant.service.manager_notices import ManagerNoticeService
 from assistant.service.organisation import OrganisationService
 from assistant.service.requests import RequestService
 from assistant.service.setup import SetupService
@@ -37,6 +38,7 @@ class Services:
     items: ItemService
     decisions: DecisionService
     status: StatusService
+    manager_notices: ManagerNoticeService
 
 
 def build_services(
@@ -57,6 +59,11 @@ def build_services(
     due.after_run.append(work.advance)
     items = ItemService(boundary, store, requests)
     status = StatusService(boundary, store, requests)
+    decisions = DecisionService(boundary, store, items, work, status)
+    manager_notices = ManagerNoticeService(boundary, store, requests, decisions)
+    due.after_run.append(manager_notices.after)
+    control.after_result.append(manager_notices.after)
+    control.on_caught_up.append(manager_notices.after)
     return Services(
         boundary=boundary,
         store=store,
@@ -69,6 +76,7 @@ def build_services(
         work=work,
         requests=requests,
         items=items,
-        decisions=DecisionService(boundary, store, items, work, status),
+        decisions=decisions,
         status=status,
+        manager_notices=manager_notices,
     )

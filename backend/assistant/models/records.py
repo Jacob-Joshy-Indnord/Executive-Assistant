@@ -507,6 +507,23 @@ class KeptResult(MutableRecord):
     payload: dict[str, Any]
 
 
+class ManagerNoticeMark(MutableRecord):
+    """Up to when the manager has been told what is ready for them: reports and attention
+    entries made after ``told_until`` are in the next notice. Its id is derived from the
+    assistant and every notice changes it with a version check, so a notice goes once."""
+
+    kind: ClassVar[str] = "manager_notice_mark"
+
+    told_until: UtcDateTime
+    told_at_that_time: list[str] = Field(default_factory=list, max_length=1000)
+    """Ids of what was told that was made at ``told_until`` itself, so that something made
+    at the same moment but after the notice is told next time."""
+
+    @property
+    def state(self) -> str:
+        return "told"
+
+
 class OrganisationControl(MutableRecord):
     """Whether the organisation has paused all its virtual employees."""
 

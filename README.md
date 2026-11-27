@@ -263,9 +263,71 @@ module's "Run what is due", as Flow's schedule would.
   `GET /status-requests/{id}`, `POST /status-requests/{id}/answer` and
   `POST /statements/{id}/correct`. Each is in the visibility sweep.
 
+## Front end
+
+Next.js 15 (App Router), React 19, TypeScript in strict mode, Tailwind CSS 3 and
+`lucide-react`; no other state, data or component library.
+
+```
+frontend/
+  app/assistant/          the pages: each renders one component, given its base path and client
+  components/assistant/   the pages, the Assistant page's sections and the shared parts
+  lib/assistant/          the API client, the types, the tokens and the refresh hook
+  tests/                  Vitest + React Testing Library
+```
+
+### Checks
+
+```sh
+cd frontend
+npm install
+npm run check             # ESLint (Next.js rules), tsc --noEmit, vitest run
+npm run dev               # pages at /assistant; /api/assistant is passed to EA_BACKEND_URL
+```
+
+### Screens decisions
+
+- **Shared parts** (`components/assistant/parts.tsx`) hold every control with the section 13.3
+  names and properties (`Btn`, `IconBtn`, `Input`, `Select`, `Textarea`, `Toggle`, `Badge`,
+  `Avatar`, `SecHead`, `Block`, `Panel`, `Field`, `FormActions`, `List`, `ListRow`, `Kpi`,
+  `Empty`, `Dialog`), plus `ColourName` (a status colour always named in words), `ChoiceGroup`
+  (radio choices) and `ErrorLine`. `tests/source-rules.test.ts` fails if a screen draws its own
+  control, uses a colour or text size outside section 13.4, sets a width wider than 375px, or
+  names an outside address.
+- **Tokens** (`lib/assistant/tokens.ts`) are the section 13.4 table. Tailwind exposes them as
+  `brand-*` colours that accept an opacity; `app/globals.css` holds the light and dark values,
+  switched by a `dark` class on the page. A test checks WCAG AA contrast in both themes. Fonts
+  are the system's own.
+- **API client** (`lib/assistant/client.ts`): `createAssistantClient({ baseUrl, fetch })`. Every
+  page takes `client` and `basePath` as properties, so Flow passes its own; links come from
+  `assistantPaths(basePath)`. A failure is shown as its one-sentence `detail.message`.
+- **Quiet refresh** (`useResource`, `useVisibleRefresh`): every 30 seconds while the page is
+  visible, and at once when it becomes visible again. Data is replaced in place, so open parts,
+  typed text and focus stay; a failed refresh keeps what is shown.
+- **The Assistant page** builds its parts from one registry (`components/assistant/sections`)
+  in section 13.1 order; part 2 registers more. Approve, edit, decline and decide take the row
+  out at once (the count changes with it) and bring it back with the reason if the call fails.
+  Closing what was opened in place returns focus to its opener; dialogs trap and return focus.
+- **Top bar**: `WaitingCount` / `useWaitingCount` / `waitingCount` read `GET /waiting-count`
+  (requests to approve plus open attention entries).
+- **Manager notices** (`service/manager_notices.py`): after each run of what is due, each
+  result, each resume and each owner's answer, the manager gets one notice for every scheduled
+  report and attention entry made since the last one. A version-checked `ManagerNoticeMark` per
+  assistant makes each notice go once. Nothing is sent while new or paused; the text holds
+  counts only; "Report now" is the manager's own click and is not told.
+- **Addresses added for the screens**: `GET /waiting-count`, `GET /people?name=` (people are
+  named, not addressed: exact name, ignoring case), `GET /my-statements` (the owner's latest
+  confirmed versions, for Correct). `GET /my-action-items` now says who asks and, for a sent
+  ask, by when; `GET /work/{id}` includes the reply. Each is in the visibility sweep.
+
 ## Open items
 
-- The front end, the demonstration app and the epics after Epic 5 are not built yet.
+- The demonstration app (its bar naming the person, Story 7.1), the end-to-end Playwright run
+  (Story 7.2) and the guide are Epic 7 and not built yet. Until then the pages call
+  `/api/assistant` without naming a person; Flow, or the demonstration bar, does that through
+  the fetch function it passes in.
+- The 375px, light/dark and nothing-from-another-site checks of Epic 6 ran by hand in Chromium
+  against the seeded world; they become automatic with the Playwright run of Epic 7.
 - A request allowed and committed but not yet carried out when a process stops is carried out
   on the next resume of that assistant or the next result it finishes; there is no separate
   due step for it.

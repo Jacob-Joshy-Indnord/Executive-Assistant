@@ -873,16 +873,37 @@ class ItemService:
         return {"count": len(shown), "open": open_count, "items": shown}
 
     async def my_items(self, viewer: Viewer) -> dict[str, Any]:
-        """The items the person asking owns, whoever gave them, with what waits for them."""
+        """The items the person asking owns, whoever gave them, with what waits for them:
+        who asks (the manager) and, for an ask that was sent, by when."""
         async with self.store.transaction(viewer.organisation_id) as tx:
             found = await find_visible(tx, viewer, ActionItem, owner_id=viewer.person_id)
+            asks = await tx.find(PersonRequest, person_id=viewer.person_id)
             names: dict[str, Person | None] = {}
             shown = []
             for item in sorted(found, key=lambda i: (i.due_date, i.created_at)):
                 assistant = await tx.get(AssistantRecord, item.assistant_id or UUID(int=0))
                 if assistant is None or assistant.state is AssistantState.ENDED:
                     continue
-                shown.append(await self.view(tx, viewer, item, names))
+                view = await self.view(tx, viewer, item, names)
+                manager = await self._name(assistant.manager_id, names)
+                view["for"] = {
+                    "id": assistant.manager_id,
+                    "display_name": manager.display_name if manager else None,
+                }
+                sent = [
+                    a
+                    for a in asks
+                    if a.subject_id == str(item.id)
+                    and a.state is PersonRequestState.SENT
+                    and a.asks in ("accept", "update")
+                ]
+                latest = max(sent, key=lambda a: a.answer_by) if sent else None
+                view["ask"] = (
+                    {"asks": latest.asks, "answer_by": latest.answer_by.isoformat()}
+                    if latest
+                    else None
+                )
+                shown.append(view)
         return {"count": len(shown), "items": shown}
 
     async def assignments(self, viewer: Viewer) -> dict[str, Any]:

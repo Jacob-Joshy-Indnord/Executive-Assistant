@@ -201,8 +201,11 @@ class DueRunnerTest(unittest.IsolatedAsyncioTestCase):
         await self.module.services.control.pause(viewer(MANAGER))
         await self.module.services.control.pause(viewer(MANAGER))  # already paused: no change
         await self.module.services.control.resume(viewer(MANAGER))
-        names = [r.name for r in self.w.standins.records.written[-2:]]
-        self.assertEqual(names, ["assistant.assistant_paused", "assistant.assistant_resumed"])
+        # Resuming may also tell the manager what became ready (Story 6.2); only pause and
+        # resume are counted here.
+        control = ("assistant.assistant_paused", "assistant.assistant_resumed")
+        names = [r.name for r in self.w.standins.records.written if r.name in control][-2:]
+        self.assertEqual(names, list(control))
 
     async def test_the_moving_clock_runs_due_steps_in_order(self) -> None:
         connect_schedule(self.clock, self.module)

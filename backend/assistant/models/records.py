@@ -20,7 +20,13 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from assistant.models.boundary import ActionKind, ApprovalLevel, ApprovalLimits, WorkKind
+from assistant.models.boundary import (
+    ActionKind,
+    ApprovalLevel,
+    ApprovalLimits,
+    PackInput,
+    WorkKind,
+)
 from assistant.models.common import FlowId, UtcDateTime
 from assistant.models.preferences import PreferencesForm
 
@@ -150,10 +156,19 @@ class PieceOfWork(MutableRecord):
     work_kind: WorkKind
     asked_by: FlowId | None = None
     """The person who asked; ``None`` when it came from a schedule."""
+    message_id: UUID | None = None
+    """The manager's chat message this piece answers, for work asked in the chat."""
+    given_inputs: list[PackInput] = Field(default_factory=list)
+    """Inputs the asker gave, e.g. the manager's choice for follow-on work."""
     input_labels: list[str] = Field(default_factory=list)
     reply: str | None = Field(default=None, max_length=CHAT_LIMIT)
     refused: list[str] = Field(default_factory=list)
     """The reason for each tool request that failed a check."""
+    reason: str | None = Field(default=None, max_length=REASON_LIMIT)
+    """Why Flow refused the work or it failed: one sentence to show."""
+    retry_of: UUID | None = None
+    started_at: UtcDateTime | None = None
+    finished_at: UtcDateTime | None = None
     state: WorkState = WorkState.WAITING
 
 
@@ -162,6 +177,22 @@ class ChatMessage(MutableRecord):
 
     author: Literal["manager", "assistant"]
     text: str = Field(min_length=1, max_length=CHAT_LIMIT)
+    work_id: UUID | None = None
+    """The piece of work the message asked for, or that the reply came from."""
+
+
+class WorkSlot(MutableRecord):
+    """Which piece of work is running for one assistant. Its id is derived from the
+    assistant and every start or finish changes it with a version check, so at most one
+    piece runs per assistant whatever the store."""
+
+    kind: ClassVar[str] = "work_slot"
+
+    running_work_id: UUID | None = None
+
+    @property
+    def state(self) -> str:
+        return "running" if self.running_work_id else "free"
 
 
 class RequestState(StrEnum):
@@ -176,19 +207,37 @@ class RequestState(StrEnum):
 
 
 class RequestRecord(MutableRecord):
-    """Something to be done on the manager's behalf; goes through the approval check."""
+    """Something to be done on the manager's behalf; goes through the approval check.
+
+    ``request_kind`` names the handler that carries it out (see
+    :mod:`assistant.service.request_kinds`); ``subject_kind`` and ``subject_id`` name what
+    it is about, and ``subject_version`` the version of that subject when it was asked, so
+    a request whose subject has since changed is withdrawn.
+    """
 
     kind: ClassVar[str] = "request"
 
     action_kind: ActionKind
+    request_kind: str = Field(default="", max_length=50)
     subject_kind: str = Field(max_length=50)
     subject_id: str | None = None
+    subject_version: int | None = None
     target_id: FlowId | None = None
+    work_id: UUID | None = None
     text: str | None = Field(default=None, max_length=MESSAGE_LIMIT)
     edited_text: str | None = Field(default=None, max_length=MESSAGE_LIMIT)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    """What carrying it out needs besides the text, e.g. a due date or a project."""
     reason: str | None = Field(default=None, max_length=REASON_LIMIT)
+    declined_by: Literal["flow", "manager"] | None = None
     effect: str | None = Field(default=None, max_length=REASON_LIMIT)
     allowed_by: Literal["manager", "without_approval"] | None = None
+    undoable: bool = False
+    decided_at: UtcDateTime | None = None
+    done_at: UtcDateTime | None = None
+    undone_at: UtcDateTime | None = None
+    undo_reason: str | None = Field(default=None, max_length=REASON_LIMIT)
+    """Why the last undo did not work, to show beside the request."""
     state: RequestState = RequestState.WAITING
 
 

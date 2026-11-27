@@ -30,6 +30,7 @@ from assistant.service.setup import FLOW
 from assistant.store.interface import Store
 
 ResultHandler = Callable[[AssistantRecord, WorkResult], Awaitable[None]]
+CaughtUpHook = Callable[[AssistantRecord], Awaitable[None]]
 
 FORM_FIRST = "Save or skip the first-time form before pausing or resuming your assistant."
 
@@ -51,6 +52,8 @@ class ControlService:
         self.store = store
         self.due = due
         self.result_handler: ResultHandler = note_result
+        self.on_caught_up: list[CaughtUpHook] = []
+        """Run after a resume has caught up, e.g. to start work that waited meanwhile."""
 
     # The manager -------------------------------------------------------------
 
@@ -166,6 +169,8 @@ class ControlService:
             await self.result_handler(current, WorkResult.model_validate(item.payload))
             await self._forget(item)
         await self.due.run_for(current, await self.boundary.clock.now())
+        for hook in self.on_caught_up:
+            await hook(current)
 
     async def _forget(self, item: KeptResult) -> None:
         async def work(action: Action) -> None:

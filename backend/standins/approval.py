@@ -62,6 +62,6 @@ class StandInApproval:
         if not done.undoable:
             return UndoResult(done=False, reason="This cannot be undone.")
         if request.request_id in self.undone:
-            return UndoResult(done=False, reason="This has already been undone.")
+            return UndoResult(done=True)  # undone once, however often asked
         self.undone.add(request.request_id)
         return UndoResult(done=True)

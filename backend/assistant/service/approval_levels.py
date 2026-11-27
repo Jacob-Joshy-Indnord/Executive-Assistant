@@ -70,6 +70,7 @@ async def approval_request_for(
     target_id: str | None = None,
     count_today: int = 0,
     approved_by_manager: bool = False,
+    text: str | None = None,
 ) -> ApprovalRequest:
     """What the module sends to Flow's check: the request with the level and limits that apply."""
     level, limits = await level_for(reader, assistant, kind)
@@ -85,6 +86,7 @@ async def approval_request_for(
         limits=limits,
         count_today=count_today,
         approved_by_manager=approved_by_manager,
+        text=text,
     )
 
 

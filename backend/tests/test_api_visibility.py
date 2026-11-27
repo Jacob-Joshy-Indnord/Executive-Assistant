@@ -43,6 +43,15 @@ def _no_params(seeded: Seeded) -> dict[str, str]:
     return {}
 
 
+def _own(name: str) -> Callable[[Seeded, str], str | None]:
+    """The seeded record's id, for the personas allowed to read it."""
+
+    def returns(seeded: Seeded, persona: str) -> str | None:
+        return str(getattr(seeded, name).id) if persona == "manager" else None
+
+    return returns
+
+
 MANAGER_ONLY = {"manager": 200, "other_manager": 404, "owner": 404, "administrator": 404}
 OWNER_OR_MANAGER = {"manager": 200, "other_manager": 404, "owner": 200, "administrator": 404}
 ADMINISTRATOR_ONLY = {"manager": 404, "other_manager": 404, "owner": 404, "administrator": 200}
@@ -85,6 +94,32 @@ def _managers_levels_untouched_by_others(world: World, persona: str, response: A
     expected = "without_approval" if persona == "manager" else "with_approval"
     assert message["level"] == expected, (persona, message)
 
+def _chat_reaches_only_the_managers_assistant(world: World, persona: str, response: Any) -> None:
+    chat = world.call("GET", f"{PREFIX}/chat", PERSONAS["manager"]).json()
+    texts = [m["text"] for m in chat["messages"] if m["author"] == "manager"]
+    expected = ["Hello"] if persona == "manager" else []
+    assert texts == expected, (persona, texts)
+
+
+MANAGER_REACHES = {"manager": 422, "other_manager": 404, "owner": 404, "administrator": 404}
+"""The manager reaches it and is told why it cannot be done now; others find nothing."""
+
+
+def _only_the_managers_decision_reaches_the_request(
+    expected_state: str,
+) -> Callable[[World, str, Any], None]:
+    def check(world: World, persona: str, response: Any) -> None:
+        path = f"{PREFIX}/requests/{world.seeded.request.id}"
+        state = world.call("GET", path, PERSONAS["manager"]).json()["state"]
+        assert state == (expected_state if persona == "manager" else "waiting"), (persona, state)
+
+    return check
+
+
+def _seeded_request(seeded: Seeded) -> dict[str, str]:
+    return {"request_id": str(seeded.request.id)}
+
+
 EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/assistant"): Expectation(
         _no_params,
@@ -119,9 +154,43 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/assistants/{assistant_id}"): Expectation(
         lambda s: {"assistant_id": str(s.assistant.id)}, MANAGER_ONLY
     ),
+    ("GET", "/api/assistant/chat"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/chat"): Expectation(
+        _no_params,
+        OWN_ASSISTANT,
+        body={"text": "Hello"},
+        checks=[_chat_reaches_only_the_managers_assistant],
+    ),
     ("GET", "/api/assistant/work/{work_id}"): Expectation(
+        lambda s: {"work_id": str(s.work.id)}, MANAGER_ONLY, returns_id=_own("work")
+    ),
+    ("POST", "/api/assistant/work/{work_id}/retry"): Expectation(
         lambda s: {"work_id": str(s.work.id)}, MANAGER_ONLY
     ),
+    ("GET", "/api/assistant/requests"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/requests/approve-all"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/requests/{request_id}"): Expectation(
+        _seeded_request, MANAGER_ONLY, returns_id=_own("request")
+    ),
+    ("POST", "/api/assistant/requests/{request_id}/approve"): Expectation(
+        _seeded_request,
+        MANAGER_ONLY,
+        body={"text": "Please send the budget figures today."},
+        checks=[_only_the_managers_decision_reaches_the_request("done")],
+    ),
+    ("POST", "/api/assistant/requests/{request_id}/decline"): Expectation(
+        _seeded_request,
+        MANAGER_ONLY,
+        body={"reason": "Not now."},
+        checks=[_only_the_managers_decision_reaches_the_request("declined")],
+    ),
+    ("POST", "/api/assistant/requests/{request_id}/retry"): Expectation(
+        _seeded_request, MANAGER_REACHES
+    ),
+    ("POST", "/api/assistant/requests/{request_id}/undo"): Expectation(
+        _seeded_request, MANAGER_REACHES
+    ),
+    ("GET", "/api/assistant/done"): Expectation(_no_params, OWN_ASSISTANT),
     ("GET", "/api/assistant/action-items/{item_id}"): Expectation(
         lambda s: {"item_id": str(s.item.id)}, OWNER_OR_MANAGER
     ),

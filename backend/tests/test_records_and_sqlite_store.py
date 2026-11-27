@@ -72,6 +72,7 @@ class RecordShapesTest(unittest.TestCase):
                 "approval_level",
                 "organisation_settings",
                 "piece_of_work",
+                "work_slot",
                 "chat_message",
                 "request",
                 "action_item",

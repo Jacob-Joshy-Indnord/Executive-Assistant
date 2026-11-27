@@ -250,6 +250,18 @@ class BoundaryContract(_Base):
             if not undone.done:
                 self.assertTrue(is_plain_sentence(undone.reason), undone.reason)
 
+    async def test_approval_carry_out_and_undo_are_idempotent_per_request(self) -> None:
+        """The module may ask again after losing its own transaction (section 9.1)."""
+        request = self._request(approved_by_manager=True)
+        first = await self.b.approval.carry_out(request)
+        again = await self.b.approval.carry_out(request)
+        self.assertEqual((again.done, again.effect, again.undoable),
+                         (first.done, first.effect, first.undoable))  # fmt: skip
+        if first.done and first.undoable:
+            undone = await self.b.approval.undo(request)
+            if undone.done:
+                self.assertTrue((await self.b.approval.undo(request)).done)
+
     async def test_approval_undo_of_something_never_carried_out_fails_with_reason(self) -> None:
         result = await self.b.approval.undo(self._request())
         self.assertFalse(result.done)

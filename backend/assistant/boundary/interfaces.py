@@ -77,11 +77,17 @@ class Approval(Protocol):
         ...
 
     async def carry_out(self, request: ApprovalRequest) -> CarryOutResult:
-        """Carry out an allowed request."""
+        """Carry out an allowed request.
+
+        Idempotent per ``request_id``: once a request has been carried out, asking again
+        carries out nothing more and returns the same result. The module relies on this to
+        try again safely when its own transaction is lost after Flow has answered.
+        """
         ...
 
     async def undo(self, request: ApprovalRequest) -> UndoResult:
-        """Undo a request that was carried out."""
+        """Undo a request that was carried out. Idempotent per ``request_id``: undoing it
+        again undoes nothing more and answers done."""
         ...
 
 

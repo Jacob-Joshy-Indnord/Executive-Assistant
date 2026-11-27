@@ -107,8 +107,69 @@ module's "Run what is due", as Flow's schedule would.
   nothing from before is theirs. Owners who were waited on get one notice each, after the
   change is saved; a notice that cannot be sent is logged, not retried.
 
+### Work, checks and approvals decisions
+
+- **Input packs** (`service/input_pack.py`, `rules/input_pack.py`). Every pack holds the saved
+  preferences, the reasons refused from the last result and its kind's inputs; each part has a
+  source label, a read time and the mark "data, not instructions". Kinds of work and their
+  input providers register in `service/work_kinds.py`. Project status enters a pack only
+  through `status_content(ConfirmedStatement)`, so drafts cannot. Size is measured on the JSON
+  handed to Flow: one input at most 40,000 characters, the pack at most 200,000; longer inputs
+  are cut and marked `shortened`, and inputs with no room left are counted in `left_out`.
+- **Pieces of work and chat** (`service/work.py`). `POST /chat` keeps the message and queues a
+  piece of work; pieces run one at a time per assistant in the order asked. A `WorkSlot` record
+  with an id derived from the assistant is changed, version-checked, on every start and finish,
+  so two starts at once cannot both succeed on any store. Finish is used once: a repeat finds
+  the piece no longer running. Refusals and failures keep one sentence (Flow's, or a fixed one
+  when Flow's is not one plain sentence) and `POST /work/{id}/retry` queues a new piece at the
+  end. Messages and replies over 4,000 characters are refused with one sentence. While paused,
+  messages wait and start on resume. Hand-over and end remove the chat, replies kept on
+  pieces of work and the slot.
+- **Checks** (`rules/tools.py`, `service/checks.py`). Tools of section 11 register with their
+  fields and section 8.1 limits. Each request is checked on its own: unknown tool or field,
+  missing field, text over its limit, a name that is not exactly one person or virtual employee
+  of the organisation (ignoring case; the reason gives the name), a source not in the pack, an
+  unknown project or item, a due date in the past. Requests after the fiftieth are refused. A
+  change to an item may not move its date or owner (BR-1). The piece of work shows
+  `refused_count` and `refused` (the reasons). Text is stored word for word and only ever
+  returned as plain text in JSON, with `X-Content-Type-Options: nosniff`; names quoted in
+  reasons are made plain.
+- **Requests** (`service/requests.py`, `service/request_kinds.py`). Kinds of request register
+  with their approval kind, whether they can be edited, whether they go to an owner, and the
+  module's own part and its undo. Each request is checked by Flow as it is made, with level,
+  limits and today's count (which includes requests allowed but not yet carried out), and is
+  carried out, left waiting, or declined with Flow's reason. Approving is version-checked and
+  re-checked by Flow with `approved_by_manager`, so it is carried out once; an edit keeps both
+  texts and Flow is given the edited one (`ApprovalRequest.text`). Confirm-statement requests
+  carry no wording and cannot be edited. Carrying out does the module's part, then asks Flow;
+  if Flow cannot, the module's part is rolled back and the request fails with a reason and
+  "Try again". Flow's carry-out and undo must be idempotent per request id (stated on the
+  `Approval` interface and checked by the reusable boundary tests), so trying again after the
+  module's transaction was lost after Flow answered carries the request out once. "Approve all" covers requests to owners only. Requests remember their
+  subject's version; one whose subject is done, closed or changed is no longer listed, is
+  withdrawn by a due step (or when approved), and `withdraw_for_subject` lets later services
+  withdraw at once. `GET /done` lists what was carried out, undone or failed, newest first,
+  with the effect, the time and whether the manager approved it; Undo is offered while it is
+  possible (an added item until its owner has answered).
+- **Addresses added**: `GET/POST /chat`, `GET /work/{id}`, `POST /work/{id}/retry`,
+  `GET /requests`, `GET /requests/{id}`, `POST /requests/{id}/approve` (`{"text"}` to edit),
+  `POST /requests/{id}/decline` (`{"reason"}`), `POST /requests/approve-all`,
+  `POST /requests/{id}/retry`, `POST /requests/{id}/undo`, `GET /done`. Each is in the
+  visibility sweep.
+
 ## Open items
 
-- The front end, the demonstration app and the epics after Epic 2 are not built yet.
+- The front end, the demonstration app and the epics after Epic 3 are not built yet.
+- A request allowed and committed but not yet carried out when a process stops is carried out
+  on the next resume of that assistant or the next result it finishes; there is no separate
+  due step for it.
+- When the assistant cannot be reached to start a piece of work, that piece fails (and can be
+  tried again) and the rest of the queue waits for the next message, result, retry or resume.
+- An assistant item whose owner is a virtual employee is added like any other; linking it to an
+  assignment is Epic 4 (Story 4.5). The "update note" limit (1,000) has no tool of its own: it
+  applies to owners' updates in Epic 4.
+- Epic 3 was verified with the standard-library test runner only: black, ruff, mypy, pytest
+  and coverage could not be installed in the build environment (no network). Run
+  `backend/check.sh` before merging.
 - Notices on hand-over or end are sent after the change is saved; one that fails is not
   retried, so its owner is not told.

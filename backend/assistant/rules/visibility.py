@@ -71,6 +71,7 @@ VISIBILITY: dict[str, Rule] = {
     "preferences": MANAGER_ONLY,
     "approval_level": MANAGER_ONLY,
     "piece_of_work": MANAGER_ONLY,
+    "work_slot": MANAGER_ONLY,
     "chat_message": MANAGER_ONLY,
     "request": MANAGER_ONLY,
     "followed_project": MANAGER_ONLY,

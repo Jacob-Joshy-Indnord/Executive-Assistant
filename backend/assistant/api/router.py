@@ -21,7 +21,6 @@ from assistant.models.records import (
     AssistantRecord,
     ConfirmedStatement,
     PersonRequest,
-    PieceOfWork,
     Record,
 )
 from assistant.rules.visibility import Viewer
@@ -52,6 +51,25 @@ class OrganisationSettingsChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     colour_meanings: MeaningsChange
+
+
+class ChatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+
+
+class ApproveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None = None
+    """The manager's edited text; leave it out to approve the text as it is."""
+
+
+class DeclineBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = None
 
 
 class OpenedBody(BaseModel):
@@ -128,9 +146,69 @@ def create_router(
     async def assistant(assistant_id: str, viewer: ViewerDep) -> dict[str, Any]:
         return await read_one(viewer, AssistantRecord, assistant_id)
 
+    @router.get("/chat")
+    async def chat(viewer: ViewerDep) -> dict[str, Any]:
+        """The manager's chat with their assistant, oldest first."""
+        return await services.work.chat(viewer)
+
+    @router.post("/chat")
+    async def send_chat(body: ChatBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The manager's message: kept in the chat and given to the assistant as work."""
+        return await services.work.send(viewer, body.text)
+
     @router.get("/work/{work_id}")
     async def piece_of_work(work_id: str, viewer: ViewerDep) -> dict[str, Any]:
-        return await read_one(viewer, PieceOfWork, work_id)
+        """A piece of work: its state, the reason it was refused or failed, and how many of
+        its tool requests were refused, with their reasons."""
+        return await services.work.work(viewer, work_id)
+
+    @router.post("/work/{work_id}/retry")
+    async def retry_work(work_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Try refused or failed work again."""
+        return await services.work.retry(viewer, work_id)
+
+    @router.get("/requests")
+    async def waiting_requests(viewer: ViewerDep) -> dict[str, Any]:
+        """Needs your approval: what waits for the manager, with the count."""
+        return await services.requests.waiting(viewer)
+
+    @router.post("/requests/approve-all")
+    async def approve_all(viewer: ViewerDep) -> dict[str, Any]:
+        """Approve every waiting request to an owner, and nothing else."""
+        return await services.requests.approve_all(viewer)
+
+    @router.get("/requests/{request_id}")
+    async def request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.requests.request(viewer, request_id)
+
+    @router.post("/requests/{request_id}/approve")
+    async def approve(
+        request_id: str, viewer: ViewerDep, body: ApproveBody | None = None
+    ) -> dict[str, Any]:
+        """Approve, or edit and approve: carried out once."""
+        return await services.requests.approve(viewer, request_id, body.text if body else None)
+
+    @router.post("/requests/{request_id}/decline")
+    async def decline(
+        request_id: str, viewer: ViewerDep, body: DeclineBody | None = None
+    ) -> dict[str, Any]:
+        """Decline: nothing is carried out; the reason is kept if given."""
+        return await services.requests.decline(viewer, request_id, body.reason if body else None)
+
+    @router.post("/requests/{request_id}/retry")
+    async def retry_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Try again what could not be carried out."""
+        return await services.requests.retry(viewer, request_id)
+
+    @router.post("/requests/{request_id}/undo")
+    async def undo_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Undo what was carried out, while that is still possible."""
+        return await services.requests.undo(viewer, request_id)
+
+    @router.get("/done")
+    async def done_for_you(viewer: ViewerDep) -> dict[str, Any]:
+        """Done for you: everything carried out in the manager's name, newest first."""
+        return await services.requests.done_for_you(viewer)
 
     @router.get("/action-items/{item_id}")
     async def action_item(item_id: str, viewer: ViewerDep) -> dict[str, Any]:

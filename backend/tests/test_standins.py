@@ -290,7 +290,8 @@ class ApprovalStandInTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((first.effect, first.undoable), ("The item is added.", True))
         self.assertIs(first, again)
         self.assertTrue((await self.s.approval.undo(item)).done)
-        self.assertFalse((await self.s.approval.undo(item)).done)
+        self.assertTrue((await self.s.approval.undo(item)).done)  # idempotent
+        self.assertEqual(self.s.approval.undone, {item.request_id})
 
     async def test_messages_cannot_be_undone(self) -> None:
         message = self._request()

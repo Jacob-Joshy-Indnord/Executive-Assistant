@@ -15,14 +15,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
 
+from assistant.models.boundary import ActionKind
 from assistant.models.records import (
     ActionItem,
     AssistantRecord,
     ConfirmedStatement,
     PersonRequest,
     PieceOfWork,
+    RequestRecord,
     StatementWording,
     WorkKind,
+    WorkState,
 )
 from assistant.module import AssistantModule, create_module
 from assistant.rules.visibility import Viewer
@@ -30,6 +33,7 @@ from assistant.store.sqlite import SqliteStore
 from standins import StandIns, build_standins
 from standins.people import PERSON_HEADER
 from standins.sample import (
+    FINANCE_LEAD,
     LEGAL_LEAD,
     OPERATIONS_DIRECTOR,
     ORGANISATION_ADMINISTRATOR,
@@ -58,6 +62,7 @@ class Seeded:
     item: ActionItem
     person_request: PersonRequest
     statement: ConfirmedStatement
+    request: RequestRecord
 
 
 @dataclass
@@ -95,7 +100,14 @@ async def seed(module: AssistantModule) -> Seeded:
     async with module.store.transaction(org) as tx:
         mine = {"organisation_id": org, "assistant_id": assistant.id, "created_at": t}
         work = await tx.add(
-            PieceOfWork(**mine, work_kind=WorkKind.REQUEST, asked_by=OPERATIONS_DIRECTOR.id)
+            PieceOfWork(
+                **mine,
+                work_kind=WorkKind.REQUEST,
+                asked_by=OPERATIONS_DIRECTOR.id,
+                state=WorkState.FAILED,
+                reason="The assistant could not finish this work.",
+                finished_at=t,
+            )
         )
         item = await tx.add(
             ActionItem(
@@ -129,7 +141,19 @@ async def seed(module: AssistantModule) -> Seeded:
                 unconfirmed_wording=StatementWording(reason=UNSHOWN_WORDING),
             )
         )
-    return Seeded(assistant, other, work, item, person_request, statement)
+        request = await tx.add(
+            RequestRecord(
+                **mine,
+                action_kind=ActionKind.SEND_MESSAGE,
+                request_kind="message",
+                subject_kind="person",
+                subject_id=FINANCE_LEAD.id,
+                target_id=FINANCE_LEAD.id,
+                text="Please send the budget figures.",
+                effect="Send a message to the Finance lead.",
+            )
+        )
+    return Seeded(assistant, other, work, item, person_request, statement, request)
 
 
 async def build_world(**module_options: Any) -> World:

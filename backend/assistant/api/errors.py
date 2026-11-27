@@ -61,12 +61,18 @@ class ModuleErrorRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
         handler = super().get_route_handler()
 
-        async def run(request: Request) -> Response:
+        async def answer(request: Request) -> Response:
             try:
                 return await handler(request)
             except ModuleError as error:
                 return error_response(error)
             except RequestValidationError as invalid:
                 return error_response(NotAllowedValue(sentence_for(invalid.errors())))
+
+        async def run(request: Request) -> Response:
+            response = await answer(request)
+            # Every answer is JSON holding plain text; a browser must never treat it as a page.
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
 
         return run

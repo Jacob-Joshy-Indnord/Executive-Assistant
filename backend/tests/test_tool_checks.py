@@ -88,7 +88,7 @@ class ToolChecksTest(EpicThree, unittest.IsolatedAsyncioTestCase):
         ignoring case, is refused and the reason gives the name."""
         refused = await self._refused(
             [item(owner="lEGAL LEAD"), item(owner="Nobody Of That Name"),
-             item(owner="backend engineer")]  # fmt: skip
+             draft(to="backend engineer")]  # fmt: skip
         )
         self.assertEqual(
             refused,
@@ -248,7 +248,8 @@ class ToolChecksTest(EpicThree, unittest.IsolatedAsyncioTestCase):
         (ask,) = await self.requests()
         self.assertEqual((ask.subject_kind, ask.subject_id), ("project", VENDOR))
         async with self.w.store.transaction(ORGANISATION_ID) as tx:
-            (entry,) = await tx.find(AttentionEntry, assistant_id=self.w.seeded.assistant.id)
+            found = await tx.find(AttentionEntry, assistant_id=self.w.seeded.assistant.id)
+        (entry,) = [e for e in found if e.id != self.w.seeded.attention.id]
         self.assertEqual((entry.reason, entry.choices), ("Budget", ["Wait", "Ask finance"]))
 
     async def test_the_assistant_cannot_move_a_date_or_reassign(self) -> None:

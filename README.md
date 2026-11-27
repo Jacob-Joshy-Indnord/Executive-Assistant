@@ -157,19 +157,76 @@ module's "Run what is due", as Flow's schedule would.
   `POST /requests/{id}/retry`, `POST /requests/{id}/undo`, `GET /done`. Each is in the
   visibility sweep.
 
+### Action items and follow-ups decisions
+
+- **Giving an item** (`service/items.py`). `POST /action-items` is the manager's own click, so
+  asking the owner to accept needs no approval (section 8.2). The ask goes out at once when it
+  may (working hours, within the day's notices); otherwise it is kept "to be sent" and the
+  `send_asks` due step sends it, with every ask due to the same owner sharing one notice. An item
+  the manager gives themselves is open at once with no follow-ups. An item for a virtual employee
+  must name one of its assignments (`GET /assignments`), is open at once and asks no one. An
+  assistant's `action_item` for a virtual employee is refused with a reason, since the manager
+  chooses the assignment; one for the manager is open at once when approved.
+- **Owners** answer their own items only (`accept`, `propose-date` and `decline`, with a reason
+  for the last two), then give one-step updates (`POST /action-items/{id}/updates`: `on_track`,
+  `done` or `blocked`, a note up to 1,000 characters, another date). Words are kept and shown
+  word for word with their time; `rules.items.needs_confirmation` is the BR-16 rule. An update
+  answers the owner's asks and withdraws waiting requests about the item. Another person's item
+  is 404; the manager answering for an owner is refused (BR-1).
+- **Follow-ups** (`rules/follow_ups.py`, step `follow_up`). These are worked out on the manager's
+  calendar and turned into UTC through the time zone, so 09:00 stays 09:00. The default is the
+  half-way working day (rounded up) and the due date; within two working days, the due date
+  only. A number chosen for all items spreads the same way, and an item's own times (up to 5, or
+  none) are kept. The step sends the latest reached time only (missed ones once) as an
+  `update_ask` request through the approval check. It is skipped when the owner gave an update
+  in the last working day. It is noted on the item (`follow_up_note`) when asking owners is not
+  allowed or Flow declines. It waits (`follow_up_waiting_until`) for working hours, or for the
+  next working day when the owner has had the day's notices. Notices are counted per distinct
+  minute of asks sent today, plus follow-ups waiting for approval. Runs of the due runner
+  call `after_run` hooks, which carry out what Flow allowed without approval.
+- **Attention entries** (`service/attention.py`). An item has one open entry at most: a new
+  trigger updates it, and its id is derived from the item and its count of entries, so two
+  stores' transactions cannot both add one. The triggers are `item_overdue` (end of the working
+  day of the due date, plus "late after" working days), `ask_unanswered` (`answer_by`), Blocked,
+  declined, another date, `owner_left` (Flow no longer knows the owner: their asks are
+  withdrawn) and, for linked items, review or a missing assignment. An update clears the entry
+  when it settles the reason (`rules.items.settles`): any answer settles "no answer", On track or
+  Done settles Blocked, and only Done settles a late item.
+- **Decisions** (`service/decisions.py`, `POST /attention/{id}/decide`). These are the manager's
+  own clicks, so none needs approval: Extend (follow-ups worked out again), "Use the new date" /
+  "Keep the first date", Reassign, Close and Take it up. Each marks the entry decided with the
+  decision and whom it concerned. The owner is told once the change is saved; a failed notice is
+  logged, not retried. Take it up sends the message the module prepared from a template (never
+  written by the assistant), as the manager edited it, to the person they pick. It is recorded
+  first, and nothing is kept if Flow does not deliver it. The item's controls on its page do the
+  same and decide any open entry. For an entry the assistant raised, the choice becomes a
+  `follow_on` piece of work with a "The manager's decision" input (kind `choice`). Audit records
+  hold only the position of the choice, never its words.
+- **Assignments** (step `assignment_state`). Each run reads the manager's assignments once, and a
+  linked item whose assignment changed gets one step, claimed by the item's version and the new
+  state. In progress, blocked and approved become On track, Blocked and Done updates (source
+  `assignment`, no confirmation). Blocked also raises the entry, and approved makes the item done.
+  Waiting for review and missing raise the entry; other states leave the item unchanged. When
+  Flow cannot be read, the step waits for the next run.
+- **Addresses added**: `GET/POST /action-items`, `GET /my-action-items`, `GET /assignments`,
+  `GET /action-items/{id}`, `POST /action-items/{id}/accept`, `/propose-date`, `/decline`,
+  `/updates`, `PUT /action-items/{id}/follow-ups`, `POST /action-items/{id}/extend`,
+  `/reassign`, `/close`, `/done`, `GET /attention`, `GET /attention/{id}` and
+  `POST /attention/{id}/decide`. Each is in the visibility sweep.
+
 ## Open items
 
-- The front end, the demonstration app and the epics after Epic 3 are not built yet.
+- The front end, the demonstration app and the epics after Epic 4 are not built yet.
 - A request allowed and committed but not yet carried out when a process stops is carried out
   on the next resume of that assistant or the next result it finishes; there is no separate
   due step for it.
 - When the assistant cannot be reached to start a piece of work, that piece fails (and can be
   tried again) and the rest of the queue waits for the next message, result, retry or resume.
-- An assistant item whose owner is a virtual employee is added like any other; linking it to an
-  assignment is Epic 4 (Story 4.5). The "update note" limit (1,000) has no tool of its own: it
-  applies to owners' updates in Epic 4.
-- Epic 3 was verified with the standard-library test runner only: black, ruff, mypy, pytest
-  and coverage could not be installed in the build environment (no network). Run
+- Epics 3 and 4 were verified with the standard-library test runner only: black, ruff, mypy,
+  pytest and coverage could not be installed in the build environment (no network). Run
   `backend/check.sh` before merging.
+- The `owner_left` and `assignment_state` steps ask Flow (People, Work data) on every run while
+  deciding what is due. That is fine for the stand-ins; a large organisation would want Flow to
+  push these changes instead.
 - Notices on hand-over or end are sent after the change is saved; one that fails is not
   retried, so its owner is not told.

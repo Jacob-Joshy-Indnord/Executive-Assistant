@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from assistant.boundary.interfaces import Boundary
+from assistant.service import item_steps  # noqa: F401  (registers the items' due steps)
 from assistant.service.approval_levels import ApprovalLevelService
 from assistant.service.checks import ToolChecks
 from assistant.service.closing import ClosingService
 from assistant.service.control import ControlService
+from assistant.service.decisions import DecisionService
 from assistant.service.due import DUE_STEPS, DueRunner, DueStepRegistry
 from assistant.service.intake import ToolIntake
+from assistant.service.items import ItemService
 from assistant.service.organisation import OrganisationService
 from assistant.service.requests import RequestService
 from assistant.service.setup import SetupService
@@ -30,6 +33,8 @@ class Services:
     closing: ClosingService
     work: WorkService
     requests: RequestService
+    items: ItemService
+    decisions: DecisionService
 
 
 def build_services(
@@ -46,6 +51,8 @@ def build_services(
     control.result_handler = work.handle_result
     control.on_caught_up.append(requests.carry_out_approved)
     control.on_caught_up.append(work.advance)
+    due.after_run.append(requests.carry_out_approved)
+    items = ItemService(boundary, store, requests)
     return Services(
         boundary=boundary,
         store=store,
@@ -57,4 +64,6 @@ def build_services(
         closing=ClosingService(boundary, store, setup, levels),
         work=work,
         requests=requests,
+        items=items,
+        decisions=DecisionService(boundary, store, items, work),
     )

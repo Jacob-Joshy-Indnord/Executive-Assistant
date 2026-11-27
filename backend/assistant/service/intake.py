@@ -36,6 +36,11 @@ from assistant.service.request_kinds import (
 from assistant.service.requests import RequestService
 
 
+VIRTUAL_EMPLOYEE_ITEM = (
+    "an item for a virtual employee follows one of its assignments, which the manager chooses"
+)
+
+
 def the(person: Person | None) -> str:
     return f"the {person.display_name}" if person else "a person"
 
@@ -101,7 +106,11 @@ class ToolIntake:
         times = [t.isoformat() for t in c.values.get("follow_up_times", [])]
         item = c.item
         if item is None:
-            payload: dict[str, Any] = {"due_date": due.isoformat(), "follow_up_times": times}
+            if owner.kind == "virtual_employee":
+                return refusal(c.index, VIRTUAL_EMPLOYEE_ITEM)
+            payload: dict[str, Any] = {"due_date": due.isoformat()}
+            if "follow_up_times" in c.values:
+                payload["follow_up_times"] = times
             await self.requests.propose(
                 action,
                 assistant,

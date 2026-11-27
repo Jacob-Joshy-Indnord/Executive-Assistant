@@ -21,7 +21,7 @@ from starlette.routing import BaseRoute, Mount
 
 from assistant.api.router import PREFIX
 from assistant.module import create_module
-from standins.sample import OUTSIDER
+from standins.sample import FINANCE_LEAD, OUTSIDER
 from tests.world import PERSONAS, UNSHOWN_WORDING, Seeded, World, build_world_sync
 
 NOT_FOUND_BODY = {"detail": {"code": "not_found", "message": "Not found."}}
@@ -116,6 +116,50 @@ def _only_the_managers_decision_reaches_the_request(
     return check
 
 
+OWNER_ANSWERS = {"manager": 422, "other_manager": 404, "owner": 200, "administrator": 404}
+"""Only the item's owner answers it; its manager reaches it and is told why not."""
+OWNER_REACHES = {"manager": 422, "other_manager": 404, "owner": 422, "administrator": 404}
+
+
+def _seeded_item(seeded: Seeded) -> dict[str, str]:
+    return {"item_id": str(seeded.item.id)}
+
+
+def _seeded_entry(seeded: Seeded) -> dict[str, str]:
+    return {"entry_id": str(seeded.attention.id)}
+
+
+def _only_the_managers_items_get_the_new_item(world: World, persona: str, response: Any) -> None:
+    items = world.call("GET", f"{PREFIX}/action-items", PERSONAS["manager"]).json()["items"]
+    texts = [i["text"] for i in items]
+    expected = 1 if persona == "manager" else 0
+    assert texts.count("Send the figures") == expected, (persona, texts)
+
+
+def _only_the_manager_decides_the_entry(world: World, persona: str, response: Any) -> None:
+    path = f"{PREFIX}/attention/{world.seeded.attention.id}"
+    state = world.call("GET", path, PERSONAS["manager"]).json()["state"]
+    assert state == ("decided" if persona == "manager" else "open"), (persona, state)
+
+
+def _only_the_owners_answer_reaches_the_item(world: World, persona: str, response: Any) -> None:
+    path = f"{PREFIX}/action-items/{world.seeded.item.id}"
+    state = world.call("GET", path, PERSONAS["owner"]).json()["state"]
+    assert state == ("open" if persona == "owner" else "waiting_for_owner"), (persona, state)
+
+
+def _only_the_managers_control_reaches_the_item(
+    field: str, expected: Any
+) -> Callable[[World, str, Any], None]:
+    def check(world: World, persona: str, response: Any) -> None:
+        path = f"{PREFIX}/action-items/{world.seeded.item.id}"
+        value = world.call("GET", path, PERSONAS["manager"]).json()[field]
+        original = {"state": "waiting_for_owner", "due_date": "2026-11-27"}.get(field)
+        assert value == (expected if persona == "manager" else original), (persona, value)
+
+    return check
+
+
 def _seeded_request(seeded: Seeded) -> dict[str, str]:
     return {"request_id": str(seeded.request.id)}
 
@@ -191,8 +235,64 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
         _seeded_request, MANAGER_REACHES
     ),
     ("GET", "/api/assistant/done"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/action-items"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/action-items"): Expectation(
+        _no_params,
+        OWN_ASSISTANT,
+        body={"text": "Send the figures", "owner_id": FINANCE_LEAD.id, "due_date": "2026-11-27"},
+        checks=[_only_the_managers_items_get_the_new_item],
+    ),
+    ("GET", "/api/assistant/my-action-items"): Expectation(_no_params, EVERYONE),
+    ("GET", "/api/assistant/assignments"): Expectation(_no_params, OWN_ASSISTANT),
     ("GET", "/api/assistant/action-items/{item_id}"): Expectation(
-        lambda s: {"item_id": str(s.item.id)}, OWNER_OR_MANAGER
+        _seeded_item,
+        OWNER_OR_MANAGER,
+        returns_id=lambda s, persona: str(s.item.id) if persona in ("manager", "owner") else None,
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/accept"): Expectation(
+        _seeded_item,
+        OWNER_ANSWERS,
+        checks=[_only_the_owners_answer_reaches_the_item],
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/propose-date"): Expectation(
+        _seeded_item, OWNER_ANSWERS, body={"due_date": "2026-12-04", "reason": "Legal is away."}
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/decline"): Expectation(
+        _seeded_item, OWNER_ANSWERS, body={"reason": "This is not mine."}
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/updates"): Expectation(
+        _seeded_item, OWNER_REACHES, body={"word": "on_track"}
+    ),
+    ("PUT", "/api/assistant/action-items/{item_id}/follow-ups"): Expectation(
+        _seeded_item, MANAGER_ONLY, body={"times": ["2026-11-25T09:00:00+00:00"]}
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/extend"): Expectation(
+        _seeded_item,
+        MANAGER_ONLY,
+        body={"due_date": "2026-12-04"},
+        checks=[_only_the_managers_control_reaches_the_item("due_date", "2026-12-04")],
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/reassign"): Expectation(
+        _seeded_item, MANAGER_ONLY, body={"owner_id": FINANCE_LEAD.id}
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/close"): Expectation(
+        _seeded_item,
+        MANAGER_ONLY,
+        body={"reason": "No longer needed."},
+        checks=[_only_the_managers_control_reaches_the_item("state", "closed")],
+    ),
+    ("POST", "/api/assistant/action-items/{item_id}/done"): Expectation(
+        _seeded_item, MANAGER_REACHES
+    ),
+    ("GET", "/api/assistant/attention"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/attention/{entry_id}"): Expectation(
+        _seeded_entry, MANAGER_ONLY, returns_id=_own("attention")
+    ),
+    ("POST", "/api/assistant/attention/{entry_id}/decide"): Expectation(
+        _seeded_entry,
+        MANAGER_ONLY,
+        body={"choice": "Renew it"},
+        checks=[_only_the_manager_decides_the_entry],
     ),
     ("GET", "/api/assistant/person-requests/{request_id}"): Expectation(
         lambda s: {"request_id": str(s.person_request.id)}, OWNER_OR_MANAGER

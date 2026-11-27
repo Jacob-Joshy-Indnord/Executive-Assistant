@@ -8,6 +8,7 @@ expectation in the visibility test.
 
 # No ``from __future__ import annotations`` here: FastAPI must resolve the
 # dependency annotations of the routes defined inside ``create_router``.
+from datetime import date, datetime
 from typing import Annotated, Any, TypeVar
 
 from fastapi import APIRouter, Depends, Request
@@ -17,7 +18,6 @@ from assistant.api.errors import ModuleErrorRoute
 from assistant.boundary.interfaces import Boundary
 from assistant.models.preferences import PreferencesForm
 from assistant.models.records import (
-    ActionItem,
     AssistantRecord,
     ConfirmedStatement,
     PersonRequest,
@@ -76,6 +76,78 @@ class OpenedBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     time_zone: str | None = None
+
+
+class NewItemBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    owner_id: str
+    due_date: date
+    project_id: str | None = None
+    assignment_id: str | None = None
+    """For a virtual employee: the one of its assignments the item follows."""
+    follow_up_times: list[datetime] | None = None
+    """Leave out for the section 8.1 schedule; an empty list for none."""
+
+
+class OtherDateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    due_date: date
+    reason: str | None = None
+
+
+class ReasonBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = None
+
+
+class UpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    word: str
+    """``on_track``, ``done`` or ``blocked``."""
+    note: str | None = None
+    date_asked_for: date | None = None
+
+
+class FollowUpsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    times: list[datetime]
+    """Up to five times, or none."""
+
+
+class ExtendBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    due_date: date
+
+
+class ReassignBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner_id: str
+    assignment_id: str | None = None
+
+
+class DecideBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    choice: str
+    due_date: date | None = None
+    """Extend: the new due date."""
+    owner_id: str | None = None
+    """Reassign: the new owner, and for a virtual employee ``assignment_id``."""
+    assignment_id: str | None = None
+    person_id: str | None = None
+    """Take it up: the person the message goes to."""
+    message: str | None = None
+    """Take it up: the prepared message as the manager edited it."""
+    reason: str | None = None
+    """Close: the reason, if any."""
 
 
 def create_router(
@@ -210,9 +282,94 @@ def create_router(
         """Done for you: everything carried out in the manager's name, newest first."""
         return await services.requests.done_for_you(viewer)
 
+    @router.get("/action-items")
+    async def action_items(viewer: ViewerDep) -> dict[str, Any]:
+        """The manager's action items, by due date."""
+        return await services.items.items(viewer)
+
+    @router.post("/action-items")
+    async def give_action_item(body: NewItemBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The manager gives an item: its owner is asked to accept, without approval."""
+        return await services.items.add(viewer, **body.model_dump())
+
+    @router.get("/my-action-items")
+    async def my_action_items(viewer: ViewerDep) -> dict[str, Any]:
+        """The items the person asking owns."""
+        return await services.items.my_items(viewer)
+
+    @router.get("/assignments")
+    async def assignments(viewer: ViewerDep) -> dict[str, Any]:
+        """The manager's virtual employees' assignments, to link an item to one."""
+        return await services.items.assignments(viewer)
+
     @router.get("/action-items/{item_id}")
     async def action_item(item_id: str, viewer: ViewerDep) -> dict[str, Any]:
-        return await read_one(viewer, ActionItem, item_id)
+        """An item, for its manager or its owner."""
+        return await services.items.item(viewer, item_id)
+
+    @router.post("/action-items/{item_id}/accept")
+    async def accept_item(item_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The owner accepts: the item is open and its follow-ups are set."""
+        return await services.items.accept(viewer, item_id)
+
+    @router.post("/action-items/{item_id}/propose-date")
+    async def propose_date(item_id: str, body: OtherDateBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The owner proposes another date, with a reason."""
+        return await services.items.propose_date(viewer, item_id, body.due_date, body.reason)
+
+    @router.post("/action-items/{item_id}/decline")
+    async def decline_item(item_id: str, body: ReasonBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The owner declines, with a reason."""
+        return await services.items.decline(viewer, item_id, body.reason)
+
+    @router.post("/action-items/{item_id}/updates")
+    async def give_update(item_id: str, body: UpdateBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The owner's update in one step: On track, Done or Blocked, a note, another date."""
+        return await services.items.give_update(viewer, item_id, **body.model_dump())
+
+    @router.put("/action-items/{item_id}/follow-ups")
+    async def set_follow_ups(
+        item_id: str, body: FollowUpsBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """The manager sets this item's follow-up times: up to five, or none."""
+        return await services.items.set_follow_ups(viewer, item_id, body.times)
+
+    @router.post("/action-items/{item_id}/extend")
+    async def extend_item(item_id: str, body: ExtendBody, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.items.extend_item(viewer, item_id, body.due_date)
+
+    @router.post("/action-items/{item_id}/reassign")
+    async def reassign_item(
+        item_id: str, body: ReassignBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        return await services.items.reassign_item(
+            viewer, item_id, body.owner_id, body.assignment_id
+        )
+
+    @router.post("/action-items/{item_id}/close")
+    async def close_item(
+        item_id: str, viewer: ViewerDep, body: ReasonBody | None = None
+    ) -> dict[str, Any]:
+        return await services.items.close_item(viewer, item_id, body.reason if body else None)
+
+    @router.post("/action-items/{item_id}/done")
+    async def item_done(item_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The manager marks an item they gave themselves as done."""
+        return await services.items.mark_done(viewer, item_id)
+
+    @router.get("/attention")
+    async def attention(viewer: ViewerDep) -> dict[str, Any]:
+        """Needs your attention: open entries with their choices, and the count."""
+        return await services.decisions.entries(viewer)
+
+    @router.get("/attention/{entry_id}")
+    async def attention_entry(entry_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.decisions.entry(viewer, entry_id)
+
+    @router.post("/attention/{entry_id}/decide")
+    async def decide(entry_id: str, body: DecideBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The manager's decision, with their own click: no approval."""
+        return await services.decisions.decide(viewer, entry_id, **body.model_dump())
 
     @router.get("/person-requests/{request_id}")
     async def person_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:

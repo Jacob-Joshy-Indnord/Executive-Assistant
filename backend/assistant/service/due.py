@@ -15,6 +15,7 @@ missed while an assistant was paused are done once, not once per missed run.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
@@ -35,6 +36,9 @@ from assistant.store.interface import Store, Transaction
 class DueContext:
     assistant: AssistantRecord
     settings: Settings
+    boundary: Boundary
+    """For kinds that read Flow while deciding what is due, e.g. assignments."""
+    store: Store
 
 
 @dataclass(frozen=True)
@@ -97,6 +101,16 @@ class DueRunner:
         self.boundary = boundary
         self.store = store
         self.registry = registry
+        self.after_run: list[Callable[[AssistantRecord], Awaitable[None]]] = []
+        """Run for an assistant once its steps are saved, e.g. to carry out requests that
+        Flow allowed without approval."""
+
+    async def _context(
+        self, reader: Transaction | Action, assistant: AssistantRecord
+    ) -> DueContext:
+        return DueContext(
+            assistant, await settings_for(reader, assistant), self.boundary, self.store
+        )
 
     async def _running_assistants(self, organisation_id: str) -> list[AssistantRecord]:
         async with self.store.transaction(organisation_id) as tx:
@@ -118,7 +132,7 @@ class DueRunner:
     ) -> RunSummary:
         summary = summary or RunSummary()
         async with self.store.transaction(assistant.organisation_id) as tx:
-            ctx = DueContext(assistant, await settings_for(tx, assistant))
+            ctx = await self._context(tx, assistant)
             pending: list[tuple[str, DueStep]] = []
             for kind in self.registry.all():
                 for step in await kind.due(tx, ctx, now):
@@ -127,8 +141,12 @@ class DueRunner:
                     else:
                         summary.already_done += 1
         pending.sort(key=lambda item: item[1].due_at)
+        done_before = summary.done
         for kind_name, step in pending:
             await self._run_step(assistant, kind_name, step, summary)
+        if summary.done > done_before:
+            for hook in self.after_run:
+                await hook(assistant)
         return summary
 
     async def _run_step(
@@ -153,7 +171,7 @@ class DueRunner:
                 ),
                 details={"step_kind": kind_name},
             )
-            ctx = DueContext(current, await settings_for(action, current))
+            ctx = await self._context(action, current)
             await kind.run(action, ctx, step)
             return True
 
@@ -188,7 +206,7 @@ class DueRunner:
         for organisation_id in await self.store.organisation_ids():
             for assistant in await self._running_assistants(organisation_id):
                 async with self.store.transaction(organisation_id) as tx:
-                    ctx = DueContext(assistant, await settings_for(tx, assistant))
+                    ctx = await self._context(tx, assistant)
                     for kind in self.registry.all():
                         candidates = [
                             step.due_at

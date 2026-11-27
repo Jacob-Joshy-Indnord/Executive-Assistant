@@ -269,9 +269,23 @@ class ActionItem(MutableRecord):
     owner_id: FlowId
     due_date: date
     follow_up_times: list[UtcDateTime] = Field(default_factory=list, max_length=5)
+    follow_ups_set: bool = False
+    """The times were chosen (by the manager, or in an approved proposal), so acceptance
+    keeps them instead of working out the section 8.1 schedule."""
+    follow_up_waiting_until: UtcDateTime | None = None
+    """A follow-up that fell outside working hours or over the day's notices waits until then."""
+    follow_up_note: str | None = Field(default=None, max_length=REASON_LIMIT)
+    """Why follow-ups are not being sent, e.g. asking owners is not allowed."""
     origin: Literal["manager", "chat"]
     project_id: FlowId | None = None
     assignment_id: FlowId | None = None
+    assignment_state: str | None = Field(default=None, max_length=50)
+    """The linked assignment's state as last shown on the item, or ``missing``."""
+    accepted_at: UtcDateTime | None = None
+    answer_reason: str | None = Field(default=None, max_length=REASON_LIMIT)
+    """The owner's own reason for proposing another date or declining (BR-16)."""
+    date_asked_for: date | None = None
+    close_reason: str | None = Field(default=None, max_length=REASON_LIMIT)
     history: list[ItemEvent] = Field(default_factory=list)
     state: ItemState = ItemState.WAITING_FOR_OWNER
 
@@ -284,6 +298,8 @@ class Update(MutableRecord):
     word: Literal["on_track", "done", "blocked"]
     note: str | None = Field(default=None, max_length=UPDATE_NOTE_LIMIT)
     date_asked_for: date | None = None
+    source: Literal["owner", "assignment"] = "owner"
+    """``assignment``: mirrored from the linked assignment in Flow, without confirmation."""
 
 
 class PersonRequestState(StrEnum):
@@ -303,6 +319,9 @@ class PersonRequest(MutableRecord):
     subject_kind: str = Field(max_length=50)
     subject_id: str
     answer_by: UtcDateTime
+    send_after: UtcDateTime | None = None
+    """For a request still to be sent: the earliest time it may go out."""
+    sent_at: UtcDateTime | None = None
     state: PersonRequestState = PersonRequestState.TO_BE_SENT
 
 
@@ -404,7 +423,15 @@ class AttentionEntry(MutableRecord):
     reason: str = Field(max_length=REASON_LIMIT)
     known: str = Field(default="", max_length=MESSAGE_LIMIT)
     choices: list[str] = Field(min_length=2, max_length=4)
-    decision: str | None = None
+    reason_code: str | None = Field(default=None, max_length=50)
+    """For an item's entry, which trigger raised it (see :mod:`assistant.rules.items`)."""
+    asked_date: date | None = None
+    """The date the owner asked for, offered to the manager."""
+    decision: str | None = Field(default=None, max_length=100)
+    decision_target_id: FlowId | None = None
+    """Whom the decision concerned, e.g. the new owner or the person a message went to."""
+    decided_by: FlowId | None = None
+    decided_at: UtcDateTime | None = None
     state: AttentionState = AttentionState.OPEN
 
 

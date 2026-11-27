@@ -36,6 +36,12 @@ class StandInPeople:
             if p.organisation_id == organisation_id and p.display_name.casefold() == wanted
         ]
 
+    # Demonstration controls -------------------------------------------------
+
+    def leave(self, person_id: str) -> None:
+        """The person leaves the organisation: Flow no longer knows them."""
+        del self._people[person_id]
+
     async def is_administrator(self, person_id: str) -> bool:
         found = self._people.get(person_id)
         return bool(found and found.administrator)

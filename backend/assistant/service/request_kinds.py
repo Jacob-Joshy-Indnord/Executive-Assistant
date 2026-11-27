@@ -120,6 +120,7 @@ async def _ask(
             subject_kind=subject_kind,
             subject_id=subject_id,
             answer_by=answer_by(action.now, settings),
+            sent_at=action.now,
             state=PersonRequestState.SENT,
         ),
         details={"asks": asks, "subject_kind": subject_kind},
@@ -158,9 +159,12 @@ async def send_message(
 async def add_item(
     action: Action, assistant: AssistantRecord, request: RequestRecord, text: str | None
 ) -> dict[str, Any]:
-    """Add the item, waiting for its owner, and ask the owner to accept it."""
+    """Add the item, waiting for its owner, and ask the owner to accept it. An item for the
+    manager themselves is open at once: no one is asked and it has no follow-ups."""
     payload = request.payload
     assert request.target_id is not None and text is not None
+    own = request.target_id == assistant.manager_id
+    chosen = "follow_up_times" in payload and not own
     item = await action.add(
         "assistant.item_added",
         ActionItem(
@@ -170,12 +174,23 @@ async def add_item(
             text=text,
             owner_id=request.target_id,
             due_date=date.fromisoformat(payload["due_date"]),
-            follow_up_times=[datetime.fromisoformat(t) for t in payload.get("follow_up_times", [])],
+            follow_up_times=(
+                [datetime.fromisoformat(t) for t in payload["follow_up_times"]] if chosen else []
+            ),
+            follow_ups_set=chosen,
             origin="chat",
+            accepted_at=action.now if own else None,
+            state=ItemState.OPEN if own else ItemState.WAITING_FOR_OWNER,
             history=[ItemEvent(at=action.now, who=action.who, event="added")],
         ),
         details={"request_id": str(request.id)},
     )
+    if own:
+        return {
+            "subject_kind": "action_item",
+            "subject_id": str(item.id),
+            "subject_version": item.version,
+        }
     ask = await _ask(action, assistant, item.owner_id, "accept", "action_item", str(item.id))
     return {
         "subject_kind": "action_item",

@@ -19,6 +19,7 @@ from assistant.models.boundary import ActionKind
 from assistant.models.records import (
     ActionItem,
     AssistantRecord,
+    AttentionEntry,
     ConfirmedStatement,
     PersonRequest,
     PieceOfWork,
@@ -63,6 +64,7 @@ class Seeded:
     person_request: PersonRequest
     statement: ConfirmedStatement
     request: RequestRecord
+    attention: AttentionEntry
 
 
 @dataclass
@@ -153,7 +155,17 @@ async def seed(module: AssistantModule) -> Seeded:
                 effect="Send a message to the Finance lead.",
             )
         )
-    return Seeded(assistant, other, work, item, person_request, statement, request)
+        attention = await tx.add(
+            AttentionEntry(
+                **mine,
+                subject_kind="assistant",
+                subject_id=str(work.id),
+                reason="The vendor contract renews next week.",
+                known="Legal has not replied about the renewal terms.",
+                choices=["Renew it", "Let it lapse"],
+            )
+        )
+    return Seeded(assistant, other, work, item, person_request, statement, request, attention)
 
 
 async def build_world(**module_options: Any) -> World:

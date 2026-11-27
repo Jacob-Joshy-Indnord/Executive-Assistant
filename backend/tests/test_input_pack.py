@@ -124,9 +124,7 @@ class InputPackTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pack.refused_source.label, REFUSED_LABEL)
         message = next(i for i in pack.inputs if i.kind == "message")
         self.assertEqual(message.label, MESSAGE_LABEL)
-        self.assertEqual(
-            message.content, "Remind the Legal lead to finish the review by Friday"
-        )
+        self.assertEqual(message.content, "Remind the Legal lead to finish the review by Friday")
         self.assertIn(MESSAGE_LABEL, pack.labels())
         self.assertIn(PREFERENCES_LABEL, pack.labels())
 

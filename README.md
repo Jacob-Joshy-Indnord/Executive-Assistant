@@ -4,6 +4,46 @@ A module that will be added to Flow: a virtual employee that works as a private 
 for one manager. This repository holds part 1: the foundation, approvals, action items
 and project status.
 
+The user guide, in plain words, is in [`docs/help`](docs/help/README.md): for managers, for
+owners, and what the statement marks mean.
+
+## Start the demonstration
+
+Two commands, one for each end, in two terminals. Nothing else is needed: no account, key,
+connection or database. Install once (Python 3.11 and Node.js 20 or later):
+
+```sh
+pip install -e "backend[dev]"
+(cd frontend && npm install)
+```
+
+Then start it:
+
+```sh
+cd backend && python -m standins.demo     # the back end, at http://127.0.0.1:8000
+cd frontend && npm run dev                # the pages, at http://localhost:3000
+```
+
+It opens with the sample organisation, in which an assistant has just been set up for the
+Operations director, so the page shows the first-time form. Everything is kept in memory.
+`EA_DEMO_HOST`/`EA_DEMO_PORT` move the back end; `EA_BACKEND_URL` tells the front end where it is.
+
+The **demonstration bar** at the top of every page plays Flow's part:
+
+- **Person** names who is asking, as Flow's sign-in would; the page opens again as they see it.
+- **Add an hour**, **Add a day** and **Go to next step** move the clock. Everything due on the
+  way runs, in order, and the page follows.
+- **Show controls** opens the rest: links to the pages; the **faults** of section 9.3 (the
+  assistant's faulty requests or refusal to start, and approval, notices or audit records that
+  fail); **As Flow**: Set up, Hand over and End an assistant and Pause or Resume everything,
+  each calling `module.flow` as Flow would; the notices sent; and **Start again** from the
+  sample data.
+
+The bar is not part of the module. Its back-end addresses (`/api/demo`) are in
+`backend/standins/demo.py`, and its parts are in `frontend/standins/`; neither `assistant/`
+nor `components/`/`lib/` uses them (tests check both). Flow passes its own client and person
+instead.
+
 ## Back end
 
 Python 3.11, FastAPI, Pydantic 2, asynchronous throughout. No ORM; the demonstration
@@ -28,7 +68,7 @@ backend/
 
 ```sh
 pip install -e "backend[dev]"
-backend/check.sh          # black, ruff, mypy, pytest with coverage (fails under 85%)
+backend/check.sh          # black and ruff (100 columns), mypy, pytest with coverage (fails under 85%)
 ```
 
 The tests are `unittest.IsolatedAsyncioTestCase` classes, so they also run with the
@@ -273,6 +313,7 @@ frontend/
   app/assistant/          the pages: each renders one component, given its base path and client
   components/assistant/   the pages, the Assistant page's sections and the shared parts
   lib/assistant/          the API client, the types, the tokens and the refresh hook
+  standins/               the demonstration bar and the client that names the person (not the module)
   tests/                  Vitest + React Testing Library
 ```
 
@@ -282,8 +323,28 @@ frontend/
 cd frontend
 npm install
 npm run check             # ESLint (Next.js rules), tsc --noEmit, vitest run
-npm run dev               # pages at /assistant; /api/assistant is passed to EA_BACKEND_URL
+npm run dev               # pages at /assistant; /api/assistant and /api/demo go to EA_BACKEND_URL
 ```
+
+### End-to-end run (Story 7.2)
+
+```sh
+cd frontend
+npm run e2e               # Playwright: starts both ends itself, on ports 8010 and 3010
+```
+
+One test, `e2e/story-7-2.spec.ts`, drives the demonstration through the bar with the Chromium
+already in the build environment (`PLAYWRIGHT_BROWSERS_PATH`; `@playwright/test` is pinned to
+match it). It never waits on the real clock: the demonstration's clock is moved through the bar
+and the browser's date is fixed to the demonstration's start. `PYTHON` names the interpreter
+that has the back end installed (default `python3`). The run: nothing is sent until the form
+is saved; an item for the Legal lead is accepted, followed up (approved), answered Blocked and
+extended; three projects go through two reports, the second with one line confirmed, one
+corrected by its owner and one awaiting confirmation, and the assistant's unconfirmed wording
+appears nowhere the manager can read; pausing sends nothing; another manager, an owner and the
+administrator find nothing; and a hand-over starts the new manager at the form with nothing
+from before. The bar's **Work data** control (an assignment's state) gives projects news, so
+the assistant drafts statements.
 
 ### Screens decisions
 
@@ -322,12 +383,11 @@ npm run dev               # pages at /assistant; /api/assistant is passed to EA_
 
 ## Open items
 
-- The demonstration app (its bar naming the person, Story 7.1), the end-to-end Playwright run
-  (Story 7.2) and the guide are Epic 7 and not built yet. Until then the pages call
-  `/api/assistant` without naming a person; Flow, or the demonstration bar, does that through
-  the fetch function it passes in.
 - The 375px, light/dark and nothing-from-another-site checks of Epic 6 ran by hand in Chromium
-  against the seeded world; they become automatic with the Playwright run of Epic 7.
+  against the seeded world; the Playwright run of Story 7.2 covers the flow, not those checks.
+- Epic 7 was built without running the test suites or the Playwright run (the build machine
+  could not take them); `backend/check.sh`, `npm run check` and `npm run e2e` must be run before
+  merging.
 - A request allowed and committed but not yet carried out when a process stops is carried out
   on the next resume of that assistant or the next result it finishes; there is no separate
   due step for it.

@@ -173,9 +173,7 @@ class DecideBody(BaseModel):
     """Close: the reason, if any."""
 
 
-def create_router(
-    boundary: Boundary, store: Store, services: Services | None = None
-) -> APIRouter:
+def create_router(boundary: Boundary, store: Store, services: Services | None = None) -> APIRouter:
     services = services or build_services(boundary, store)
     router = APIRouter(prefix=PREFIX, route_class=ModuleErrorRoute, tags=["assistant"])
 
@@ -373,9 +371,7 @@ def create_router(
         return await services.items.extend_item(viewer, item_id, body.due_date)
 
     @router.post("/action-items/{item_id}/reassign")
-    async def reassign_item(
-        item_id: str, body: ReassignBody, viewer: ViewerDep
-    ) -> dict[str, Any]:
+    async def reassign_item(item_id: str, body: ReassignBody, viewer: ViewerDep) -> dict[str, Any]:
         return await services.items.reassign_item(
             viewer, item_id, body.owner_id, body.assignment_id
         )
@@ -436,9 +432,7 @@ def create_router(
     async def follow(
         project_id: str, viewer: ViewerDep, body: FollowBody | None = None
     ) -> dict[str, Any]:
-        return await services.status.follow(
-            viewer, project_id, body.confirmer_id if body else None
-        )
+        return await services.status.follow(viewer, project_id, body.confirmer_id if body else None)
 
     @router.put("/projects/{project_id}/confirmer")
     async def change_confirmer(
@@ -461,7 +455,7 @@ def create_router(
 
     @router.post("/reports")
     async def report_now(viewer: ViewerDep) -> dict[str, Any]:
-        """"Report now": a report is made at once."""
+        """ "Report now": a report is made at once."""
         return await services.status.report_now(viewer)
 
     @router.get("/reports/{report_id}")

@@ -21,7 +21,7 @@ def end_of_working_day_after(now: datetime, settings: Settings, working_days: in
     """
     tz = ZoneInfo(settings.time_zone)
     day = now.astimezone(tz).date()
-    allowed = {d.index for d in settings.working_days}
+    allowed = {d.number for d in settings.working_days}
     counted = 0
     while counted < max(working_days, 1):
         day += timedelta(days=1)

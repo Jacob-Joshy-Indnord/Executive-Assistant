@@ -138,9 +138,7 @@ class SendAsks:
             )
             if (a.send_after or a.created_at) <= now and await _still_wanted(action, a)
         ]
-        sent = await notify_asks(
-            action, ctx.boundary, ctx.assistant, ask.person_id, len(together)
-        )
+        sent = await notify_asks(action, ctx.boundary, ctx.assistant, ask.person_id, len(together))
         if not sent:
             raise BoundaryUnavailable()  # not sent: the step is tried again on the next run
         for waiting in together:

@@ -53,9 +53,11 @@ class AttentionDecisionsTest(EpicFour, EpicThree, unittest.IsolatedAsyncioTestCa
     async def test_extend(self) -> None:
         """Story 4.4 - Extend: the new due date applies, the owner is told, and the
         follow-ups are set again."""
-        self.assertEqual(
-            self.refused("POST", f"/attention/{self.entry.id}/decide", MANAGER,
-                         {"choice": "Extend"}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/attention/{self.entry.id}/decide",
+            MANAGER,
+            {"choice": "Extend"}),  # fmt: skip
             "Choose the new due date.",
         )
         before = self.checked()

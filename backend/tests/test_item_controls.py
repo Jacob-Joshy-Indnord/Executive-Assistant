@@ -31,9 +31,7 @@ class ItemControlsTest(EpicFour, unittest.IsolatedAsyncioTestCase):
     async def test_manager_can_manage_an_item(self) -> None:
         """Story 4.1 - when the manager opens an item, they can change its follow-up times,
         extend, reassign or close it, and mark their own items as done."""
-        self.assertEqual(
-            self.view(self.item)["can"], ["follow_ups", "extend", "reassign", "close"]
-        )
+        self.assertEqual(self.view(self.item)["can"], ["follow_ups", "extend", "reassign", "close"])
         own = self.give(owner=MANAGER, text="Read the summary")
         self.assertEqual(self.view(own)["can"], ["update", "extend", "reassign", "close", "done"])
         self.assertEqual(self.view(self.item, OWNER)["can"], ["update"])
@@ -85,9 +83,7 @@ class ItemControlsTest(EpicFour, unittest.IsolatedAsyncioTestCase):
         self.assertEqual((record.who, record.state_after), (MANAGER, "open"))
 
     async def test_reassign_asks_the_new_owner_and_tells_the_previous(self) -> None:
-        reassigned = self.ok(
-            "POST", self.path("reassign"), MANAGER, {"owner_id": FINANCE_LEAD.id}
-        )
+        reassigned = self.ok("POST", self.path("reassign"), MANAGER, {"owner_id": FINANCE_LEAD.id})
         self.assertEqual(reassigned["owner"]["id"], FINANCE_LEAD.id)
         self.assertEqual(reassigned["state"], "waiting_for_owner")
         self.assertEqual(reassigned["follow_up_times"], [])
@@ -125,16 +121,12 @@ class ItemControlsTest(EpicFour, unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             all(a.state is PersonRequestState.WITHDRAWN for a in await self.asks(other))
         )
-        self.assertEqual(
-            self.refused("POST", self.path("close"), MANAGER, {}), rules.ENDED
-        )
+        self.assertEqual(self.refused("POST", self.path("close"), MANAGER, {}), rules.ENDED)
 
     async def test_mark_own_items_done(self) -> None:
         own = self.give(owner=MANAGER, text="Read the summary")
         self.assertEqual(self.ok("POST", self.path("done", own), MANAGER)["state"], "done")
-        self.assertEqual(
-            self.refused("POST", self.path("done"), MANAGER), rules.ONLY_OWN_DONE
-        )
+        self.assertEqual(self.refused("POST", self.path("done"), MANAGER), rules.ONLY_OWN_DONE)
 
     async def test_owners_cannot_use_the_managers_controls(self) -> None:
         for action, body in [

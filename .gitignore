@@ -9,3 +9,6 @@ htmlcov/
 frontend/node_modules/
 frontend/.next/
 frontend/*.tsbuildinfo
+*.egg-info/
+frontend/test-results/
+frontend/playwright-report/

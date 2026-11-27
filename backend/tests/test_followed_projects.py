@@ -64,9 +64,11 @@ class FollowedProjectsTest(EpicFive, unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.followed(VENDOR))
         response = self.call("POST", f"/projects/{VENDOR}/follow", SALES_DIRECTOR.id)
         self.assertEqual(response.status_code, 404)  # one they cannot see
-        self.assertEqual(
-            self.refused("POST", f"/projects/{VENDOR}/follow", MANAGER,
-                         {"confirmer_id": BACKEND_ENGINEER.id}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/projects/{VENDOR}/follow",
+            MANAGER,
+            {"confirmer_id": BACKEND_ENGINEER.id}),  # fmt: skip
             rules.NOT_A_CONFIRMER,
         )
 

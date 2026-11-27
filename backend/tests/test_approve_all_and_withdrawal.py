@@ -156,9 +156,7 @@ class ApproveAllAndWithdrawalTest(EpicThree, unittest.IsolatedAsyncioTestCase):
     async def test_requests_about_unchanged_subjects_stay(self) -> None:
         await self.run_tools([ask_about_item(self.item_id), statement(CRM, "On plan.")])
         await self.w.module.flow.run_due()
-        self.assertTrue(
-            all(r.state is RequestState.WAITING for r in await self.requests())
-        )
+        self.assertTrue(all(r.state is RequestState.WAITING for r in await self.requests()))
         async with self.w.store.transaction(ORGANISATION_ID) as tx:
             self.assertEqual(len(await tx.find(RequestRecord, state=RequestState.WAITING)), 2)
 

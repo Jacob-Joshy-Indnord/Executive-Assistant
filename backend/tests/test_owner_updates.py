@@ -36,9 +36,11 @@ class OwnerUpdatesTest(EpicFour, unittest.IsolatedAsyncioTestCase):
         choose On track, Done or Blocked, can add a note, and can ask for another date."""
         opened = self.view(self.item, OWNER)
         self.assertEqual(opened["can"], ["accept", "propose_date", "decline"])
-        self.assertEqual(
-            self.refused("POST", f"/action-items/{self.item['id']}/updates", OWNER,
-                         {"word": "on_track"}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/action-items/{self.item['id']}/updates",
+            OWNER,
+            {"word": "on_track"}),  # fmt: skip
             rules.ACCEPT_FIRST,
         )
         self.accept(self.item)
@@ -90,9 +92,11 @@ class OwnerUpdatesTest(EpicFour, unittest.IsolatedAsyncioTestCase):
         await self.at(datetime(2026, 11, 27, 9, 0, tzinfo=UTC))
         await self.run_due()
         self.assertEqual(await self.requests_about(self.item), [])
-        self.assertEqual(
-            self.refused("POST", f"/action-items/{self.item['id']}/updates", OWNER,
-                         {"word": "on_track"}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/action-items/{self.item['id']}/updates",
+            OWNER,
+            {"word": "on_track"}),  # fmt: skip
             rules.ENDED,
         )
 
@@ -111,9 +115,11 @@ class OwnerUpdatesTest(EpicFour, unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status_code, 404)
                     self.assertEqual(response.json()["detail"]["code"], "not_found")
         self.assertEqual(self.ok("GET", "/my-action-items", FINANCE_LEAD.id)["items"], [])
-        self.assertEqual(
-            self.refused("POST", f"/action-items/{self.item['id']}/updates", MANAGER,
-                         {"word": "done"}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/action-items/{self.item['id']}/updates",
+            MANAGER,
+            {"word": "done"}),  # fmt: skip
             rules.ONLY_THE_OWNER,
         )
         self.assertEqual(self.view(self.item)["state"], "open")

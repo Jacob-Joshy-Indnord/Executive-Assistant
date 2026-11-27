@@ -52,7 +52,8 @@ class ReportFollowThroughTest(EpicFive, unittest.IsolatedAsyncioTestCase):
         await self.at(ASK_TIME)
         await self.run_due()
         request = next(
-            r for r in self.ok("GET", "/status-requests", LEGAL_LEAD.id)["requests"]
+            r
+            for r in self.ok("GET", "/status-requests", LEGAL_LEAD.id)["requests"]
             if r["project"]["id"] == VENDOR
         )
         self.answer(request["id"], LEGAL_LEAD.id, colour="amber", reason="Legal review is late.",
@@ -112,9 +113,11 @@ class ReportFollowThroughTest(EpicFive, unittest.IsolatedAsyncioTestCase):
 
         self.ok("POST", "/reports", MANAGER)
         entry = await self.missed_entry()
-        self.assertEqual(
-            self.refused("POST", f"/attention/{entry.id}/decide", MANAGER,
-                         {"choice": "Change who confirms"}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/attention/{entry.id}/decide",
+            MANAGER,
+            {"choice": "Change who confirms"}),  # fmt: skip
             "Choose who confirms the project's status.",
         )
         self.ok("POST", f"/attention/{entry.id}/decide", MANAGER,

@@ -76,7 +76,7 @@ class WorkKind(StrEnum):
     FOLLOW_ON = "follow_on"
 
 
-DATA_NOT_INSTRUCTIONS = "data, not instructions"
+DATA_NOT_INSTRUCTIONS: Literal["data, not instructions"] = "data, not instructions"
 
 
 class PackSource(_Shape):

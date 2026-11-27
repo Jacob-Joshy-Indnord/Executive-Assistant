@@ -174,9 +174,7 @@ class WorkAndChatTest(unittest.IsolatedAsyncioTestCase):
 
         self.scripted.start_work = unreachable  # type: ignore[method-assign]
         body = self._send("First").json()
-        self.assertEqual(
-            (body["work"]["state"], body["work"]["reason"]), ("failed", NOT_STARTED)
-        )
+        self.assertEqual((body["work"]["state"], body["work"]["reason"]), ("failed", NOT_STARTED))
         self.assertTrue(body["work"]["can_retry"])
 
     async def test_refused_work_lets_the_next_piece_run(self) -> None:

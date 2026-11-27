@@ -24,7 +24,7 @@ class Weekday(StrEnum):
     SUNDAY = "sunday"
 
     @property
-    def index(self) -> int:
+    def number(self) -> int:
         """Monday is 0, as in :meth:`datetime.date.weekday`."""
         return list(Weekday).index(self)
 
@@ -52,7 +52,7 @@ class WorkingTime(_Part):
     def _unique_days(cls, days: list[Weekday] | None) -> list[Weekday] | None:
         if days is not None and len(set(days)) != len(days):
             raise ValueError("Each working day can be chosen once.")
-        return sorted(days, key=lambda d: d.index) if days else days
+        return sorted(days, key=lambda d: d.number) if days else days
 
     @field_validator("time_zone")
     @classmethod

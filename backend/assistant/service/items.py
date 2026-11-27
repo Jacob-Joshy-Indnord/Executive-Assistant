@@ -154,8 +154,10 @@ async def end_asks(
     for ask in await action.find(PersonRequest, subject_kind=SUBJECT, subject_id=str(item.id)):
         if ask.state not in OPEN_ASKS or (person_id is not None and ask.person_id != person_id):
             continue
-        name = "assistant.ask_answered" if to is PersonRequestState.ANSWERED else (
-            "assistant.ask_withdrawn"
+        name = (
+            "assistant.ask_answered"
+            if to is PersonRequestState.ANSWERED
+            else ("assistant.ask_withdrawn")
         )
         ended.append(
             await action.change(name, ask, ask.evolve(state=to), details={"because": because})
@@ -483,7 +485,7 @@ class ItemService:
                     created_at=action.now,
                     item_id=item.id,
                     author_id=viewer.person_id,
-                    word=word,  # type: ignore[arg-type]  # checked against WORDS above
+                    word=word,  # checked against WORDS above
                     note=note,
                     date_asked_for=date_asked_for,
                 ),
@@ -525,9 +527,7 @@ class ItemService:
         return item, assistant
 
     @staticmethod
-    def _times_refusal_or_utc(
-        times: list[datetime] | None, now: datetime
-    ) -> list[datetime] | None:
+    def _times_refusal_or_utc(times: list[datetime] | None, now: datetime) -> list[datetime] | None:
         if times is None:
             return None
         if len(times) > rules.MAX_FOLLOW_UPS:
@@ -618,9 +618,7 @@ class ItemService:
         item = await action.change(
             "assistant.item_date_kept",
             item,
-            item.evolve(
-                date_asked_for=None, history=[*item.history, event(action, "date_kept")]
-            ),
+            item.evolve(date_asked_for=None, history=[*item.history, event(action, "date_kept")]),
         )
         await decide_for_item(action, item, decision)
         return self._tell_owner(
@@ -713,9 +711,7 @@ class ItemService:
         return await self.item(viewer, raw_id)
 
     async def extend_item(self, viewer: Viewer, raw_id: str, due_date: date) -> dict[str, Any]:
-        return await self._decide(
-            viewer, raw_id, lambda a, i, s: self.extend(a, i, s, due_date)
-        )
+        return await self._decide(viewer, raw_id, lambda a, i, s: self.extend(a, i, s, due_date))
 
     async def reassign_item(
         self, viewer: Viewer, raw_id: str, owner_id: str, assignment_id: str | None
@@ -741,9 +737,7 @@ class ItemService:
             item = await action.change(
                 "assistant.item_done",
                 item,
-                item.evolve(
-                    state=ItemState.DONE, history=[*item.history, event(action, "done")]
-                ),
+                item.evolve(state=ItemState.DONE, history=[*item.history, event(action, "done")]),
             )
             await clear_for_item(action, item, "done")
             return []

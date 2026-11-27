@@ -1,8 +1,8 @@
 "use client";
 
 import { AssistantPage } from "@/components/assistant/AssistantPage";
-import { APP_BASE_PATH, appClient } from "@/lib/assistant/app";
+import { DEMO_BASE_PATH, demoClient } from "@/standins/client";
 
 export default function Page() {
-  return <AssistantPage client={appClient()} basePath={APP_BASE_PATH} />;
+  return <AssistantPage client={demoClient()} basePath={DEMO_BASE_PATH} />;
 }

@@ -99,8 +99,14 @@ def sample_projects() -> list[SampleProject]:
     p = SampleProject
     return [
         p("crm_rollout", "CRM rollout", PROGRAMME_LEAD, "250000.00", "112500.50", {ops}),
-        p("vendor_consolidation", "Vendor consolidation", LEGAL_LEAD, "80000.00", "23000.00",
-          {ops}),  # fmt: skip
+        p(
+            "vendor_consolidation",
+            "Vendor consolidation",
+            LEGAL_LEAD,
+            "80000.00",
+            "23000.00",
+            {ops},
+        ),
         p("hiring_plan", "Hiring plan", FINANCE_LEAD, "150000.00", "61000.00", {ops, sales}),
     ]
 
@@ -110,8 +116,14 @@ def sample_assignments() -> list[SampleAssignment]:
     a = SampleAssignment
     return [
         a("crm_import", "Build the CRM data import", backend, ops, "in_progress", "crm_rollout"),
-        a("vendor_export", "Fix the vendor list export", backend, ops, "blocked",
-          "vendor_consolidation"),  # fmt: skip
+        a(
+            "vendor_export",
+            "Fix the vendor list export",
+            backend,
+            ops,
+            "blocked",
+            "vendor_consolidation",
+        ),
         a("crm_tests", "Test the CRM rollout", tester, ops, "waiting_for_review", "crm_rollout"),
         a("hiring_forms", "Check the hiring plan forms", tester, ops, "approved", "hiring_plan"),
     ]

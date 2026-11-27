@@ -34,7 +34,7 @@ POINTS = ("reason", "what_changed", "what_comes_next")
 
 
 def _working(day: date, settings: Settings) -> bool:
-    return day.weekday() in {d.index for d in settings.working_days}
+    return day.weekday() in {d.number for d in settings.working_days}
 
 
 def _monday(day: date) -> date:
@@ -42,7 +42,7 @@ def _monday(day: date) -> date:
 
 
 def _is_report_day(day: date, settings: Settings, anchor: date) -> bool:
-    if settings.report_frequency == "off" or day.weekday() != settings.report_day.index:
+    if settings.report_frequency == "off" or day.weekday() != settings.report_day.number:
         return False
     if settings.report_frequency == "monthly":
         return day.day <= 7  # the first such weekday of the month

@@ -35,7 +35,6 @@ from assistant.service.request_kinds import (
 )
 from assistant.service.requests import RequestService
 
-
 VIRTUAL_EMPLOYEE_ITEM = (
     "an item for a virtual employee follows one of its assignments, which the manager chooses"
 )

@@ -125,8 +125,10 @@ async def end_status_asks(
     person_id: str | None = None,
 ) -> None:
     for ask in await open_status_asks(action, assistant, project_id, person_id):
-        name = "assistant.ask_answered" if to is PersonRequestState.ANSWERED else (
-            "assistant.ask_withdrawn"
+        name = (
+            "assistant.ask_answered"
+            if to is PersonRequestState.ANSWERED
+            else ("assistant.ask_withdrawn")
         )
         await action.change(name, ask, ask.evolve(state=to), details={"because": because})
 
@@ -135,9 +137,7 @@ async def latest_statement(
     reader: Transaction | Action, assistant: AssistantRecord, project_id: str
 ) -> ConfirmedStatement | None:
     """The newest version: the one no later version points back to (times can be equal)."""
-    found = await reader.find(
-        ConfirmedStatement, assistant_id=assistant.id, project_id=project_id
-    )
+    found = await reader.find(ConfirmedStatement, assistant_id=assistant.id, project_id=project_id)
     corrected = {s.previous_version_id for s in found}
     heads = [s for s in found if s.id not in corrected] or found
     return max(heads, key=lambda s: s.created_at) if heads else None
@@ -270,7 +270,7 @@ async def ask_for_status(
                 assistant_id=assistant.id,
                 created_at=action.now,
                 person_id=request.target_id,
-                asks=asks,  # type: ignore[arg-type]
+                asks=asks,
                 subject_kind=subject_kind,
                 subject_id=subject_id,
                 answer_by=needed_by or answer_by(action.now, settings),
@@ -416,8 +416,10 @@ class StatusService:
 
     async def confirmer(self, viewer: Viewer, person_id: str) -> Person:
         person = await self.boundary.people.person(person_id)
-        if person is None or person.organisation_id != viewer.organisation_id or (
-            person.kind != "person"
+        if (
+            person is None
+            or person.organisation_id != viewer.organisation_id
+            or (person.kind != "person")
         ):
             raise NotAllowedValue(rules.NOT_A_CONFIRMER)
         return person
@@ -431,8 +433,7 @@ class StatusService:
         visible = await self.visible_projects(viewer.person_id)
         async with self.store.transaction(viewer.organisation_id) as tx:
             followed = {
-                f.project_id: f
-                for f in await tx.find(FollowedProject, assistant_id=assistant.id)
+                f.project_id: f for f in await tx.find(FollowedProject, assistant_id=assistant.id)
             }
         listed = []
         for project in visible.values():
@@ -752,7 +753,7 @@ class StatusService:
                     created_at=action.now,
                     project_id=project_id,
                     owner_id=viewer.person_id,
-                    colour=colour,  # type: ignore[arg-type]  # checked above
+                    colour=colour,  # checked above
                     wording=wording,
                     previous_version_id=previous.id if previous else None,
                     ask_id=ask.id,
@@ -813,7 +814,7 @@ class StatusService:
                     created_at=action.now,
                     project_id=earlier.project_id,
                     owner_id=viewer.person_id,
-                    colour=colour,  # type: ignore[arg-type]  # checked above
+                    colour=colour,  # checked above
                     wording=wording,
                     source=earlier.source,
                     author_id=viewer.person_id,
@@ -950,7 +951,7 @@ class StatusService:
                 changed_since_last=changed_since(
                     report_lines, previous.lines if previous else None
                 ),
-                made_by=made_by,  # type: ignore[arg-type]
+                made_by=made_by,
                 due_at=due_at,
             ),
             details={"lines": len(report_lines), "made_by": made_by},
@@ -1029,7 +1030,7 @@ class StatusService:
         }
 
     async def report_now(self, viewer: Viewer) -> dict[str, Any]:
-        """"Report now": a report is made at once."""
+        """ "Report now": a report is made at once."""
 
         async def work(action: Action) -> Report:
             assistant = await my_assistant(action.tx, viewer)

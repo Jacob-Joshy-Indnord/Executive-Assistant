@@ -25,7 +25,7 @@ def _tz(settings: Settings) -> ZoneInfo:
 
 
 def _working(day: date, settings: Settings) -> bool:
-    return day.weekday() in {d.index for d in settings.working_days}
+    return day.weekday() in {d.number for d in settings.working_days}
 
 
 def at_local(day: date, when: time, settings: Settings) -> datetime:

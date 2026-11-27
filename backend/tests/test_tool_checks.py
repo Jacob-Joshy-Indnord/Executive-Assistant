@@ -77,9 +77,7 @@ class ToolChecksTest(EpicThree, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handled.state, RequestState.WAITING)
 
     async def test_text_at_its_limit_is_accepted(self) -> None:
-        refused = await self._refused(
-            [item(text="x" * 300), draft(text="m" * 2000)]
-        )
+        refused = await self._refused([item(text="x" * 300), draft(text="m" * 2000)])
         self.assertEqual(refused, [])
         self.assertEqual(len(await self.requests()), 2)
 

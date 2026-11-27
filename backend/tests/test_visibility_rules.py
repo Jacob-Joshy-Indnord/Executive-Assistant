@@ -120,6 +120,7 @@ class ApiErrorAnswersTest(unittest.TestCase):
             "not-saved": NotSaved(),
             "unavailable": BoundaryUnavailable(),
         }
+
         def raiser_for(error: ModuleError) -> Callable[[], None]:
             def raiser() -> None:
                 raise error

@@ -135,9 +135,7 @@ async def clear_attention(action: Action, assistant: AssistantRecord, closing: C
 
 
 @CLOSING_HANDLERS.register
-async def remove_working_data(
-    action: Action, assistant: AssistantRecord, closing: Closing
-) -> None:
+async def remove_working_data(action: Action, assistant: AssistantRecord, closing: Closing) -> None:
     """Preferences, followed projects, chat, waiting requests, unconfirmed statements and
     kept results go. Confirmed statements and reports stay: nothing here can remove them."""
     removable: list[tuple[str, type[MutableRecord]]] = [

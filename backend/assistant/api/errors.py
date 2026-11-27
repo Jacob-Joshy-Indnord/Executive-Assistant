@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from typing import Any
 
 from fastapi.exceptions import RequestValidationError
@@ -58,7 +58,7 @@ def sentence_for(errors: Sequence[Any]) -> str:
 class ModuleErrorRoute(APIRoute):
     """A route whose module errors become 401/404/409/422/503 answers fit to show."""
 
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         handler = super().get_route_handler()
 
         async def answer(request: Request) -> Response:

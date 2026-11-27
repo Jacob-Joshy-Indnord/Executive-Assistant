@@ -183,9 +183,11 @@ class StatementConfirmationTest(EpicFive, unittest.IsolatedAsyncioTestCase):
         self.assertEqual((written["mark"], written["author"]["id"]), ("confirmed", OWNER))
         self.assertEqual(written["source"], "Legal lead")
         self.assertFalse(needs_confirmation(written["author"]["id"], written["owner_id"]))
-        self.assertEqual(
-            self.refused("POST", f"/status-requests/{request['id']}/answer", OWNER,
-                         {"colour": "green", "reason": "Again."}),  # fmt: skip
+        self.assertEqual(self.refused(
+            "POST",
+            f"/status-requests/{request['id']}/answer",
+            OWNER,
+            {"colour": "green", "reason": "Again."}),  # fmt: skip
             rules.ALREADY_ANSWERED,
         )
 

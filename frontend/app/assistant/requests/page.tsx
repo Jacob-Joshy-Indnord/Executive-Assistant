@@ -1,8 +1,8 @@
 "use client";
 
 import { RequestsForYouPage } from "@/components/assistant/RequestsForYouPage";
-import { APP_BASE_PATH, appClient } from "@/lib/assistant/app";
+import { DEMO_BASE_PATH, demoClient } from "@/standins/client";
 
 export default function Page() {
-  return <RequestsForYouPage client={appClient()} basePath={APP_BASE_PATH} />;
+  return <RequestsForYouPage client={demoClient()} basePath={DEMO_BASE_PATH} />;
 }

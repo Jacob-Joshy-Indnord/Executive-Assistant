@@ -86,13 +86,9 @@ def effective_settings(
         ends=ends,
         time_zone=wt.time_zone or first_open_time_zone or d.time_zone,
         follow_ups=fu.follow_ups,
-        answer_within_working_days=_or(
-            fu.answer_within_working_days, d.answer_within_working_days
-        ),
+        answer_within_working_days=_or(fu.answer_within_working_days, d.answer_within_working_days),
         late_after_working_days=_or(fu.late_after_working_days, d.late_after_working_days),
-        notices_per_owner_per_day=_or(
-            fu.notices_per_owner_per_day, d.notices_per_owner_per_day
-        ),
+        notices_per_owner_per_day=_or(fu.notices_per_owner_per_day, d.notices_per_owner_per_day),
         report_frequency=_or(rp.frequency, d.report_frequency),
         report_day=_or(rp.day, d.report_day),
         report_time=_or(rp.time, d.report_time),

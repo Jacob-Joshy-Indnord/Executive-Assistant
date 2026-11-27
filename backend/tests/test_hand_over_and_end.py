@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from assistant.api.router import PREFIX
-from assistant.errors import NotAllowedValue
+from assistant.errors import ModuleError, NotAllowedValue
 from assistant.models.boundary import ActionKind, WorkResult
 from assistant.models.preferences import PreferencesForm
 from assistant.models.records import (
@@ -252,7 +252,7 @@ class HandOverAndEndTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_nothing_changes_and_no_one_is_told_when_records_cannot_be_written(self) -> None:
         self.w.standins.records.failing = True
-        with self.assertRaises(Exception):
+        with self.assertRaises(ModuleError):
             await self.flow.end(ORGANISATION_ID, self.ops.flow_id)
         self.w.standins.records.failing = False
         self.assertEqual((await self._get(self.ops)).state, AssistantState.PAUSED)

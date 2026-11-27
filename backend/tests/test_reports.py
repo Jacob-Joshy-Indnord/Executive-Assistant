@@ -71,9 +71,7 @@ class ReportScheduleTest(unittest.TestCase):
     def test_report_time_stays_local_across_clock_changes(self) -> None:
         london = settings(time_zone="Europe/London", report_time=time(8, 0))
         found = self.reports_in(london, utc(2026, 10, 15), utc(2026, 11, 3))
-        self.assertEqual(
-            found, [utc(2026, 10, 19, 7), utc(2026, 10, 26, 8), utc(2026, 11, 2, 8)]
-        )
+        self.assertEqual(found, [utc(2026, 10, 19, 7), utc(2026, 10, 26, 8), utc(2026, 11, 2, 8)])
 
 
 class ReportsTest(EpicFive, unittest.IsolatedAsyncioTestCase):

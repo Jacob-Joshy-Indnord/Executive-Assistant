@@ -71,9 +71,7 @@ class SqliteStore:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
         # One transaction, so processes opening the same file at once cannot interleave.
-        self._conn.executescript(
-            "BEGIN IMMEDIATE;" + _SCHEMA + _append_only_triggers() + "COMMIT;"
-        )
+        self._conn.executescript("BEGIN IMMEDIATE;" + _SCHEMA + _append_only_triggers() + "COMMIT;")
         self._lock = asyncio.Lock()
         self._holder: asyncio.Task[Any] | None = None
 

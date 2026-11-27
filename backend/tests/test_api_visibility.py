@@ -94,6 +94,7 @@ def _managers_levels_untouched_by_others(world: World, persona: str, response: A
     expected = "without_approval" if persona == "manager" else "with_approval"
     assert message["level"] == expected, (persona, message)
 
+
 def _chat_reaches_only_the_managers_assistant(world: World, persona: str, response: Any) -> None:
     chat = world.call("GET", f"{PREFIX}/chat", PERSONAS["manager"]).json()
     texts = [m["text"] for m in chat["messages"] if m["author"] == "manager"]
@@ -431,9 +432,7 @@ class ApiVisibilityTest(unittest.TestCase):
 
     def test_sweep_fails_on_an_address_it_does_not_know(self) -> None:
         self.app.add_api_route(f"{PREFIX}/surprise", lambda: {}, methods=["POST"])
-        self.assertEqual(
-            addresses_without_expectation(self.app), {("POST", f"{PREFIX}/surprise")}
-        )
+        self.assertEqual(addresses_without_expectation(self.app), {("POST", f"{PREFIX}/surprise")})
 
     def test_sweep_fails_on_a_new_module_address_without_expectation(self) -> None:
         module = create_module(self.world.standins.boundary, self.world.store)
@@ -464,9 +463,7 @@ class ApiVisibilityTest(unittest.TestCase):
                     for other in (absent, bad):
                         self.assertEqual(not_theirs.status_code, other.status_code)
                         self.assertEqual(not_theirs.content, other.content)
-                        self.assertEqual(
-                            dict(not_theirs.headers), dict(other.headers)
-                        )
+                        self.assertEqual(dict(not_theirs.headers), dict(other.headers))
 
     def test_someone_from_another_organisation_finds_nothing(self) -> None:
         path = f"{PREFIX}/action-items/{self.seeded.item.id}"

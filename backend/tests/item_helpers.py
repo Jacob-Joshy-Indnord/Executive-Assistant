@@ -89,9 +89,7 @@ class EpicFour:
 
     async def entries(self, item: Any) -> list[AttentionEntry]:
         async with self.w.store.transaction(ORGANISATION_ID) as tx:
-            return await tx.find(
-                AttentionEntry, subject_kind="action_item", subject_id=item["id"]
-            )
+            return await tx.find(AttentionEntry, subject_kind="action_item", subject_id=item["id"])
 
     async def open_entries(self, item: Any) -> list[AttentionEntry]:
         return [e for e in await self.entries(item) if e.state is AttentionState.OPEN]

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { SystemTheme } from "@/components/assistant/SystemTheme";
+import { DemoShell } from "@/standins/DemoShell";
 import "./globals.css";
 
 export const metadata: Metadata = { title: "Executive Assistant" };
@@ -11,7 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body>
         <SystemTheme />
-        {children}
+        <DemoShell>{children}</DemoShell>
       </body>
     </html>
   );

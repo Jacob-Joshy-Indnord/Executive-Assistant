@@ -49,9 +49,7 @@ class StandInApproval:
             return self.carried_out[request.request_id]
         if self.failing:
             return CarryOutResult(done=False, reason="Flow could not carry this out.")
-        result = CarryOutResult(
-            done=True, effect=request.effect, undoable=request.kind in UNDOABLE
-        )
+        result = CarryOutResult(done=True, effect=request.effect, undoable=request.kind in UNDOABLE)
         self.carried_out[request.request_id] = result
         return result
 

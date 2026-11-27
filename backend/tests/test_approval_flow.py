@@ -72,9 +72,7 @@ class ApprovalFlowTest(EpicThree, unittest.IsolatedAsyncioTestCase):
         )
         waiting, sent, asked = await self.requests()
         self.assertEqual(waiting.state, RequestState.WAITING)
-        self.assertEqual(
-            [r["id"] for r in self.waiting()["requests"]], [str(waiting.id)]
-        )
+        self.assertEqual([r["id"] for r in self.waiting()["requests"]], [str(waiting.id)])
         self.assertEqual((sent.state, sent.allowed_by), (RequestState.DONE, "without_approval"))
         self.assertEqual([c.request_id for c in self.carried], [sent.id])
         self.assertEqual(self.carried[0].text, "Please send the figures.")
@@ -176,9 +174,7 @@ class ApprovalFlowTest(EpicThree, unittest.IsolatedAsyncioTestCase):
         assert changed is not None
         self.assertEqual(changed.text, "Finish the review and sign it")
         self.assertEqual([t.isoformat() for t in changed.follow_up_times], times)
-        self.assertEqual(
-            (changed.due_date, changed.owner_id), (seeded.due_date, seeded.owner_id)
-        )
+        self.assertEqual((changed.due_date, changed.owner_id), (seeded.due_date, seeded.owner_id))
         self.assertEqual(changed.history[-1].event, "changed")
         self.assertFalse(done["can_undo"])
 

@@ -324,9 +324,7 @@ class RequestService:
         action.assistant_id = assistant.id
         return request, assistant
 
-    async def approve(
-        self, viewer: Viewer, raw_id: str, text: str | None = None
-    ) -> dict[str, Any]:
+    async def approve(self, viewer: Viewer, raw_id: str, text: str | None = None) -> dict[str, Any]:
         """Approve, or edit and approve: carried out once, with the edited text if given."""
         request_id = parse_id(raw_id)
 
@@ -497,9 +495,7 @@ class RequestService:
             )
 
         try:
-            await perform(
-                self.boundary, self.store, viewer.organisation_id, viewer.person_id, work
-            )
+            await perform(self.boundary, self.store, viewer.organisation_id, viewer.person_id, work)
         except _NotCarriedOut as failed:
             await self._note_undo_failure(viewer, request_id, failed.reason)
         return await self.request(viewer, str(request_id))

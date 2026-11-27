@@ -256,9 +256,7 @@ class WorkService:
         async with self.store.transaction(viewer.organisation_id) as tx:
             assistant = await my_assistant(tx, viewer)
             messages = await find_visible(tx, viewer, ChatMessage, assistant_id=assistant.id)
-            pieces = {
-                w.id: w for w in await tx.find(PieceOfWork, assistant_id=assistant.id)
-            }
+            pieces = {w.id: w for w in await tx.find(PieceOfWork, assistant_id=assistant.id)}
         return {
             "messages": [
                 message_view(m, pieces.get(m.work_id) if m.work_id else None) for m in messages
@@ -481,9 +479,7 @@ class WorkService:
 
 
 @CLOSING_HANDLERS.register
-async def forget_chat_in_work(
-    action: Action, assistant: AssistantRecord, closing: Closing
-) -> None:
+async def forget_chat_in_work(action: Action, assistant: AssistantRecord, closing: Closing) -> None:
     """The chat goes with a hand-over or end: replies and given inputs kept on pieces of
     work are cleared too, and the work slot is removed."""
     for piece in await action.find(PieceOfWork, assistant_id=assistant.id):

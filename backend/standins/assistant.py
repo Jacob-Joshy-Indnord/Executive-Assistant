@@ -58,6 +58,11 @@ class ScriptedAssistant:
         self._finished.append(await self.answer(order))
         return StartResult(accepted=True)
 
+    @property
+    def has_finished(self) -> bool:
+        """Whether a turn has ended and its result waits to be handed to the module."""
+        return bool(self._finished)
+
     def take_finished(self) -> list[WorkResult]:
         """Results waiting to be handed to the module, as Flow would at the end of a turn."""
         finished, self._finished = self._finished, []

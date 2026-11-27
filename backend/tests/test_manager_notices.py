@@ -74,10 +74,15 @@ class ManagerNoticeTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.notices.send_ready(self.assistant))
         self.assertEqual(
             self.told(),
-            ["Your Executive Assistant has a new status report and 2 things that need your attention."],
+            [
+                "Your Executive Assistant has a new status report"
+                " and 2 things that need your attention."
+            ],
         )
         notice = self.w.standins.notices.sent[0]
-        self.assertEqual((notice.subject_kind, notice.subject_id), ("assistant", str(self.assistant.id)))
+        self.assertEqual(
+            (notice.subject_kind, notice.subject_id), ("assistant", str(self.assistant.id))
+        )
 
     async def test_each_is_told_once(self) -> None:
         await self.later()
@@ -87,7 +92,9 @@ class ManagerNoticeTest(unittest.IsolatedAsyncioTestCase):
         await self.later()
         await self.ready(entries=1)
         self.assertTrue(await self.notices.send_ready(self.assistant))
-        self.assertEqual(self.told()[-1], "Your Executive Assistant has one thing that needs your attention.")
+        self.assertEqual(
+            self.told()[-1], "Your Executive Assistant has one thing that needs your attention."
+        )
 
     async def test_something_made_at_the_same_moment_after_a_notice_is_told_next(self) -> None:
         self.assertTrue(await self.notices.send_ready(self.assistant))  # the seeded entry
@@ -123,7 +130,9 @@ class ManagerNoticeTest(unittest.IsolatedAsyncioTestCase):
             "POST", f"{PREFIX}/action-items/{item_id}/decline", OWNER, {"reason": "Not mine."}
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(self.told(), ["Your Executive Assistant has one thing that needs your attention."])
+        self.assertEqual(
+            self.told(), ["Your Executive Assistant has one thing that needs your attention."]
+        )
 
     async def test_a_scheduled_report_tells_the_manager(self) -> None:
         connect_schedule(self.w.standins.clock, self.w.module)

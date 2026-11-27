@@ -91,9 +91,7 @@ class AttentionEntriesTest(EpicFour, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await reasons(), ["owner_left"] * 4)
         (entry,) = self.ok("GET", "/attention", MANAGER)["entries"][-1:]
         self.assertEqual(entry["choices"], [rules.REASSIGN, rules.CLOSE])
-        self.assertEqual(
-            [a.state for a in await self.asks(left)], [PersonRequestState.WITHDRAWN]
-        )
+        self.assertEqual([a.state for a in await self.asks(left)], [PersonRequestState.WITHDRAWN])
         await self.run_due()  # once for each owner
         self.assertEqual(len(await self.entries(left)), 1)
 
@@ -128,9 +126,7 @@ class AttentionEntriesTest(EpicFour, unittest.IsolatedAsyncioTestCase):
             async def work(action: Any) -> None:
                 await raise_for_item(action, item, reason)
 
-            await perform(
-                self.w.module.boundary, self.w.store, ORGANISATION_ID, "flow", work
-            )
+            await perform(self.w.module.boundary, self.w.store, ORGANISATION_ID, "flow", work)
 
         await asyncio.gather(raise_one(rules.Reason.BLOCKED), raise_one(rules.Reason.OVERDUE))
         (entry,) = await self.entries(self.item)
@@ -173,7 +169,6 @@ class AttentionEntriesTest(EpicFour, unittest.IsolatedAsyncioTestCase):
         self.assertEqual([e.reason_code for e in await self.open_entries(late)], ["overdue"])
         self.update(late, "done")
         self.assertEqual(await self.open_entries(late), [])
-
 
 
 if __name__ == "__main__":

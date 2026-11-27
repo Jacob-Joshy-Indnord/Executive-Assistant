@@ -86,9 +86,7 @@ class World:
     client: TestClient
     seeded: Seeded
 
-    def call(
-        self, method: str, path: str, person_id: str | None, json: Any = None
-    ) -> Response:
+    def call(self, method: str, path: str, person_id: str | None, json: Any = None) -> Response:
         headers = {PERSON_HEADER: person_id} if person_id else {}
         return self.client.request(method, path, headers=headers, json=json)
 
@@ -232,9 +230,7 @@ class Bare:
     module: AssistantModule
     client: TestClient
 
-    def call(
-        self, method: str, path: str, person_id: str | None, json: Any = None
-    ) -> Response:
+    def call(self, method: str, path: str, person_id: str | None, json: Any = None) -> Response:
         headers = {PERSON_HEADER: person_id} if person_id else {}
         return self.client.request(method, path, headers=headers, json=json)
 

@@ -13,7 +13,7 @@ so that new kinds are added in one place.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, ClassVar, Literal, Self
 from uuid import UUID, uuid4
@@ -27,7 +27,7 @@ from assistant.models.boundary import (
     PackInput,
     WorkKind,
 )
-from assistant.models.common import FlowId, UtcDateTime
+from assistant.models.common import Amount, FlowId, UtcDateTime
 from assistant.models.preferences import PreferencesForm
 
 # Text limits of section 8.1, in characters.
@@ -328,11 +328,46 @@ class PersonRequest(MutableRecord):
 # --- Project status ---------------------------------------------------------
 
 
+class AssignmentChange(BaseModel):
+    """A change seen to an assignment on a followed project: ids and states only."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    assignment_id: FlowId
+    title: str = Field(max_length=300)
+    before: str | None = Field(default=None, max_length=50)
+    """``None`` when the assignment was not on the project before."""
+    after: str = Field(max_length=50)
+    """Its state now, or ``missing``."""
+    at: UtcDateTime
+
+
+MAX_ASSIGNMENT_CHANGES = 100
+
+
 class FollowedProject(MutableRecord):
     kind: ClassVar[str] = "followed_project"
 
     project_id: FlowId
     confirmer_id: FlowId
+    project_name: str = Field(default="", max_length=200)
+    """As last read, to name the project when the manager can no longer see it."""
+    window_start: UtcDateTime | None = None
+    """When "since the last report" starts: the last report, or when it was followed."""
+    spend_at_start: Amount | None = None
+    assignment_states: dict[str, str] = Field(default_factory=dict)
+    """The state last seen of each assignment on the project."""
+    assignment_changes: list[AssignmentChange] = Field(
+        default_factory=list, max_length=MAX_ASSIGNMENT_CHANGES
+    )
+    """Changes seen since ``window_start``: news for the next drafts."""
+    asked_at: UtcDateTime | None = None
+    """When its confirmer was last asked for its status."""
+    missed_reports: int = Field(default=0, ge=0)
+    """Reports in a row without a confirmation for the project."""
+
+    def since(self) -> datetime:
+        return self.window_start or self.created_at
 
 
 class StatementWording(BaseModel):
@@ -380,6 +415,12 @@ class ConfirmedStatement(AppendOnlyRecord):
     mark: Literal["confirmed", "corrected"]
     previous_version_id: UUID | None = None
     draft_id: UUID | None = None
+    ask_id: UUID | None = None
+    """The request to the owner it answered, if any."""
+    changed_points: list[Literal["colour", "reason", "what_changed", "what_comes_next"]] = Field(
+        default_factory=list
+    )
+    """For a correction: which points differ from what it corrected."""
     unconfirmed_wording: StatementWording | None = None
     """The assistant's wording the owner did not confirm (BR-5). Never shown to the manager."""
 
@@ -404,6 +445,10 @@ class Report(AppendOnlyRecord):
 
     lines: list[ReportLine] = Field(default_factory=list)
     changed_since_last: list[FlowId] = Field(default_factory=list)
+    made_by: Literal["schedule", "manager"] = "schedule"
+    """``manager``: made at once with "Report now"."""
+    due_at: UtcDateTime | None = None
+    """For a scheduled report: the time it was due."""
 
 
 # --- Attention ---------------------------------------------------------------

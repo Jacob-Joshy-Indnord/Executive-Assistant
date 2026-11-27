@@ -133,6 +133,29 @@ class ReassignBody(BaseModel):
     assignment_id: str | None = None
 
 
+class FollowBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmer_id: str | None = None
+    """Who confirms its status; leave out for the project's owner."""
+
+
+class ConfirmerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    person_id: str
+
+
+class StatementBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    colour: str | None = None
+    """``green``, ``amber`` or ``red``: always chosen by the owner."""
+    reason: str | None = None
+    what_changed: str | None = None
+    what_comes_next: str | None = None
+
+
 class DecideBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -377,7 +400,74 @@ def create_router(
 
     @router.get("/statements/{statement_id}")
     async def statement(statement_id: str, viewer: ViewerDep) -> dict[str, Any]:
-        return await read_one(viewer, ConfirmedStatement, statement_id)
+        """A confirmed statement; for a correction, who made it, when and which points
+        changed, never the wording its owner did not confirm."""
+        return await services.status.statement(viewer, statement_id)
+
+    @router.post("/statements/{statement_id}/correct")
+    async def correct_statement(
+        statement_id: str, body: StatementBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Its owner adds a correction: a new version; the earlier one is kept."""
+        return await services.status.correct(viewer, statement_id, **body.model_dump())
+
+    @router.get("/projects")
+    async def projects(viewer: ViewerDep) -> dict[str, Any]:
+        """The projects the manager can see, and whether each is followed."""
+        return await services.status.projects(viewer)
+
+    @router.post("/projects/{project_id}/follow")
+    async def follow(
+        project_id: str, viewer: ViewerDep, body: FollowBody | None = None
+    ) -> dict[str, Any]:
+        return await services.status.follow(
+            viewer, project_id, body.confirmer_id if body else None
+        )
+
+    @router.put("/projects/{project_id}/confirmer")
+    async def change_confirmer(
+        project_id: str, body: ConfirmerBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        return await services.status.change_confirmer(viewer, project_id, body.person_id)
+
+    @router.post("/projects/{project_id}/unfollow")
+    async def unfollow(project_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.status.unfollow(viewer, project_id)
+
+    @router.get("/status")
+    async def status_page(viewer: ViewerDep) -> dict[str, Any]:
+        """Project status as it stands: confirmed words only."""
+        return await services.status.page(viewer)
+
+    @router.get("/reports")
+    async def reports(viewer: ViewerDep) -> dict[str, Any]:
+        return await services.status.reports(viewer)
+
+    @router.post("/reports")
+    async def report_now(viewer: ViewerDep) -> dict[str, Any]:
+        """"Report now": a report is made at once."""
+        return await services.status.report_now(viewer)
+
+    @router.get("/reports/{report_id}")
+    async def report(report_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.status.report(viewer, report_id)
+
+    @router.get("/status-requests")
+    async def status_requests(viewer: ViewerDep) -> dict[str, Any]:
+        """What the person asking is asked to confirm or give."""
+        return await services.status.status_requests(viewer)
+
+    @router.get("/status-requests/{request_id}")
+    async def status_request(request_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """For the person asked only: it may hold the assistant's draft (BR-4)."""
+        return await services.status.status_request(viewer, request_id)
+
+    @router.post("/status-requests/{request_id}/answer")
+    async def answer_status(
+        request_id: str, body: StatementBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Confirm or correct the draft, or give the status: a colour and a reason."""
+        return await services.status.answer(viewer, request_id, **body.model_dump())
 
     @router.get("/organisation/settings")
     async def organisation_settings(viewer: ViewerDep) -> dict[str, Any]:

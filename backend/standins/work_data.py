@@ -38,6 +38,7 @@ class StandInWorkData:
                 virtual_employee_id=a.virtual_employee.id,
                 manager_id=a.manager.id,
                 state=a.state,
+                project_id=a.project_id,
                 source_label=f"Flow assignment: {a.title}",
                 read_at=now,
             )

@@ -260,6 +260,32 @@ async def ask_for_update(
     return {"payload": {**request.payload, "ask_id": str(ask.id)}}
 
 
+async def give_draft_to_owner(action: Action, draft: StatementDraft) -> StatementDraft:
+    """The draft goes to its owner. An older one of the project still unanswered is marked
+    replaced, and what its owner was asked about it is withdrawn (Story 5.2)."""
+    for older in await action.find(
+        StatementDraft, assistant_id=draft.assistant_id, project_id=draft.project_id
+    ):
+        if older.id == draft.id or older.state is not DraftState.WITH_OWNER:
+            continue
+        await action.change(
+            "assistant.statement_draft_replaced", older, older.evolve(state=DraftState.REPLACED)
+        )
+        for ask in await action.find(
+            PersonRequest, subject_kind="statement_draft", subject_id=str(older.id)
+        ):
+            if ask.state in (PersonRequestState.TO_BE_SENT, PersonRequestState.SENT):
+                await action.change(
+                    "assistant.ask_withdrawn",
+                    ask,
+                    ask.evolve(state=PersonRequestState.WITHDRAWN),
+                    details={"because": "replaced"},
+                )
+    return await action.change(
+        "assistant.statement_given_to_owner", draft, draft.evolve(state=DraftState.WITH_OWNER)
+    )
+
+
 async def ask_to_confirm(
     action: Action, assistant: AssistantRecord, request: RequestRecord, text: str | None
 ) -> dict[str, Any]:
@@ -267,9 +293,7 @@ async def ask_to_confirm(
     assert request.target_id is not None and request.subject_id is not None
     draft = await action.get(StatementDraft, UUID(request.subject_id))
     assert draft is not None
-    await action.change(
-        "assistant.statement_given_to_owner", draft, draft.evolve(state=DraftState.WITH_OWNER)
-    )
+    await give_draft_to_owner(action, draft)
     ask = await _ask(
         action, assistant, request.target_id, "confirm", "statement_draft", request.subject_id
     )

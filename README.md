@@ -214,19 +214,72 @@ module's "Run what is due", as Flow's schedule would.
   `/reassign`, `/close`, `/done`, `GET /attention`, `GET /attention/{id}` and
   `POST /attention/{id}/decide`. Each is in the visibility sweep.
 
+### Project status decisions
+
+- **Following** (`service/status.py`). `POST /projects/{id}/follow` takes a project the manager
+  can see (any other is 404). The owner confirms its status unless the manager names another
+  person (`confirmer_id`, or later `PUT /projects/{id}/confirmer`); virtual employees cannot
+  confirm. Changing who confirms withdraws what the previous person was asked about it and
+  replaces their drafts. `POST /projects/{id}/unfollow` stops following, and in both cases a
+  status request still waiting for approval that no longer fits is withdrawn.
+- **News since the last report** (agreed with the manager). The window runs from the last report
+  (scheduled or "Report now"), or from when the project was followed. Work data assignments
+  carry an optional `project_id`. The `project_assignments` step reads them on every run and
+  keeps every change to an assignment on a followed project, whether or not an item links to
+  it. A project's news is the updates on its action items, those assignment changes, and its
+  spend when it differs from the spend at the start of the window. At the time to draft
+  (`status_drafts`), one `status_drafts` piece of work gets a `project_news` input for each
+  project that has news; a project with none gets no draft.
+- **Asking** (`status_asks`, request kind `status_round`). Each confirmer gets one request
+  through the approval check, covering every project they have not confirmed since the last
+  report. It carries no wording (BR-4) and cannot be edited. Carrying it out gives each project
+  the assistant's draft to confirm (replacing an older unanswered one), or else asks for the
+  status, starting from the last confirmed statement (its colour preselected) or an empty form.
+  The request is needed by the next report. Undo is possible until the confirmer answers.
+- **Owners** (`/status-requests`, for the person asked only, because a request may hold a
+  draft). An answer needs a colour the owner chooses and a reason (300 and 500 character
+  limits). An unchanged draft is confirmed with the assistant as author. A changed one is
+  corrected: the owner is the author, the draft's wording is kept in `unconfirmed_wording` and
+  never shown, and `changed_points` names what changed. A status the owner writes counts as
+  confirmed (BR-16). `POST /statements/{id}/correct` adds a correction to the latest version;
+  versions stay append-only, and the latest is the head of the version chain.
+- **Reports** (`rules/reports.py`, `status_report`). Reports are weekly, every two weeks (from
+  the week the manager took the assistant on), monthly on the first chosen weekday, or off. Ask
+  and draft times are 09:00 the chosen number of working days, and one more, before the report.
+  Every time is local to the manager, and missed ones are done once. A report has one line per
+  followed project the manager can still see. A project whose confirmer was asked after its
+  latest confirmation shows that confirmation as Awaiting confirmation. Colour changes are
+  listed against the previous report. `GET /status` shows the live lines and the next report
+  time.
+- **Follow-through**. A project the manager can no longer see is removed by
+  `project_visibility`, and the manager gets one notice. A confirmer who leaves raises the
+  project's attention entry (Change who confirms, Stop following). Two reports in a row
+  without a confirmation raise one with Ask again, Change who confirms and Stop following; a
+  confirmation clears it. `GET /statements/{id}` shows a correction's author, time and
+  changed points, never the unconfirmed wording.
+- **Addresses added**: `GET /projects`, `POST /projects/{id}/follow`,
+  `PUT /projects/{id}/confirmer`, `POST /projects/{id}/unfollow`, `GET /status`,
+  `GET/POST /reports`, `GET /reports/{id}`, `GET /status-requests`,
+  `GET /status-requests/{id}`, `POST /status-requests/{id}/answer` and
+  `POST /statements/{id}/correct`. Each is in the visibility sweep.
+
 ## Open items
 
-- The front end, the demonstration app and the epics after Epic 4 are not built yet.
+- The front end, the demonstration app and the epics after Epic 5 are not built yet.
 - A request allowed and committed but not yet carried out when a process stops is carried out
   on the next resume of that assistant or the next result it finishes; there is no separate
   due step for it.
 - When the assistant cannot be reached to start a piece of work, that piece fails (and can be
   tried again) and the rest of the queue waits for the next message, result, retry or resume.
-- Epics 3 and 4 were verified with the standard-library test runner only: black, ruff, mypy,
+- Epics 3 to 5 were verified with the standard-library test runner only: black, ruff, mypy,
   pytest and coverage could not be installed in the build environment (no network). Run
   `backend/check.sh` before merging.
-- The `owner_left` and `assignment_state` steps ask Flow (People, Work data) on every run while
-  deciding what is due. That is fine for the stand-ins; a large organisation would want Flow to
+- The `owner_left`, `assignment_state`, `project_visibility`, `confirmer_left` and
+  `project_assignments` steps ask Flow (People, Work data) on every run while deciding what is
+  due. That is fine for the stand-ins; a large organisation would want Flow to
   push these changes instead.
 - Notices on hand-over or end are sent after the change is saved; one that fails is not
   retried, so its owner is not told.
+- Assignment changes are seen when a run reads them: a change that is undone between two runs
+  is not news. "Report now" also starts a new window and counts towards two reports in a row
+  without a confirmation.

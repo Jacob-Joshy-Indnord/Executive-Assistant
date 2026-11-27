@@ -59,6 +59,8 @@ class AssignmentRecord(_Shape):
     virtual_employee_id: FlowId
     manager_id: FlowId
     state: AssignmentState
+    project_id: FlowId | None = None
+    """The project the assignment belongs to; its changes are that project's news."""
     source_label: str = Field(min_length=1, max_length=200)
     read_at: UtcDateTime
 

@@ -160,6 +160,26 @@ def _only_the_managers_control_reaches_the_item(
     return check
 
 
+OWNER_ONLY = {"manager": 404, "other_manager": 404, "owner": 200, "administrator": 404}
+"""What only the person asked may see: a status request may hold a draft (BR-4)."""
+STATEMENT = {"colour": "amber", "reason": "Two contracts are still open."}
+
+
+def _seeded_project(seeded: Seeded) -> dict[str, str]:
+    return {"project_id": seeded.followed.project_id}
+
+
+def _only_the_managers_report_is_made(world: World, persona: str, response: Any) -> None:
+    reports = world.call("GET", f"{PREFIX}/reports", PERSONAS["manager"]).json()
+    assert reports["count"] == (2 if persona == "manager" else 1), (persona, reports["count"])
+
+
+def _only_the_manager_stops_following(world: World, persona: str, response: Any) -> None:
+    projects = world.call("GET", f"{PREFIX}/projects", PERSONAS["manager"]).json()["projects"]
+    hiring = next(p for p in projects if p["id"] == world.seeded.followed.project_id)
+    assert hiring["followed"] is (persona != "manager"), (persona, hiring)
+
+
 def _seeded_request(seeded: Seeded) -> dict[str, str]:
     return {"request_id": str(seeded.request.id)}
 
@@ -299,6 +319,34 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ),
     ("GET", "/api/assistant/statements/{statement_id}"): Expectation(
         lambda s: {"statement_id": str(s.statement.id)}, OWNER_OR_MANAGER
+    ),
+    ("POST", "/api/assistant/statements/{statement_id}/correct"): Expectation(
+        lambda s: {"statement_id": str(s.statement.id)}, OWNER_ONLY, body=STATEMENT
+    ),
+    ("GET", "/api/assistant/projects"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/projects/{project_id}/follow"): Expectation(
+        _seeded_project, MANAGER_ONLY
+    ),
+    ("PUT", "/api/assistant/projects/{project_id}/confirmer"): Expectation(
+        _seeded_project, MANAGER_ONLY, body={"person_id": FINANCE_LEAD.id}
+    ),
+    ("POST", "/api/assistant/projects/{project_id}/unfollow"): Expectation(
+        _seeded_project, MANAGER_ONLY, checks=[_only_the_manager_stops_following]
+    ),
+    ("GET", "/api/assistant/status"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/reports"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/reports"): Expectation(
+        _no_params, OWN_ASSISTANT, checks=[_only_the_managers_report_is_made]
+    ),
+    ("GET", "/api/assistant/reports/{report_id}"): Expectation(
+        lambda s: {"report_id": str(s.report.id)}, MANAGER_ONLY, returns_id=_own("report")
+    ),
+    ("GET", "/api/assistant/status-requests"): Expectation(_no_params, EVERYONE),
+    ("GET", "/api/assistant/status-requests/{request_id}"): Expectation(
+        lambda s: {"request_id": str(s.status_ask.id)}, OWNER_ONLY
+    ),
+    ("POST", "/api/assistant/status-requests/{request_id}/answer"): Expectation(
+        lambda s: {"request_id": str(s.status_ask.id)}, OWNER_ONLY, body=STATEMENT
     ),
     ("GET", "/api/assistant/organisation/settings"): Expectation(_no_params, ADMINISTRATOR_ONLY),
     ("PUT", "/api/assistant/organisation/settings"): Expectation(

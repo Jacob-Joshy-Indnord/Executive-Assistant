@@ -29,9 +29,11 @@ from assistant.models.records import (
     AssistantRecord,
     AttentionEntry,
     AttentionState,
+    FollowedProject,
     ItemEvent,
 )
 from assistant.rules import items as rules
+from assistant.rules import status as status_rules
 from assistant.rules.items import Reason
 from assistant.rules.visibility import Viewer
 from assistant.service.actions import Action, perform
@@ -39,6 +41,7 @@ from assistant.service.assistants import my_assistant
 from assistant.service.attention import ITEM_SUBJECT, mark_decided
 from assistant.service.items import ItemService, Owner
 from assistant.service.notices import Tell, tell
+from assistant.service.status import StatusService
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.service.work import WorkService
 from assistant.store.interface import Store, Transaction
@@ -49,17 +52,24 @@ CHOOSE_ONE = "Choose one of the choices offered."
 NEW_DATE_NEEDED = "Choose the new due date."
 NEW_OWNER_NEEDED = "Choose the new owner."
 PERSON_NEEDED = "Choose a person in the organisation to send the message to."
+CONFIRMER_NEEDED = "Choose who confirms the project's status."
 NOT_SENT = "The message could not be sent, so nothing was changed."
 
 
 class DecisionService:
     def __init__(
-        self, boundary: Boundary, store: Store, items: ItemService, work: WorkService
+        self,
+        boundary: Boundary,
+        store: Store,
+        items: ItemService,
+        work: WorkService,
+        status: StatusService,
     ) -> None:
         self.boundary = boundary
         self.store = store
         self.items = items
         self.work = work
+        self.status = status
 
     # Reading -----------------------------------------------------------------------------
 
@@ -96,6 +106,17 @@ class DecisionService:
             "last_update": None,
             "prepared_message": None,
         }
+        if entry.subject_kind == status_rules.PROJECT_SUBJECT and entry.subject_id:
+            followed = await reader.get(FollowedProject, UUID(entry.subject_id))
+            view["label"] = status_rules.REASON_LABELS.get(entry.reason_code or "")
+            if followed is not None:
+                confirmer = await self.boundary.people.person(followed.confirmer_id)
+                view["project"] = {"id": followed.project_id, "name": followed.project_name}
+                view["confirmer"] = {
+                    "id": followed.confirmer_id,
+                    "display_name": confirmer.display_name if confirmer else None,
+                }
+            return view
         item = await self._item_of(reader, entry)
         if item is None:
             return view
@@ -159,6 +180,12 @@ class DecisionService:
             raise NotAllowedValue(CHOOSE_ONE)
         owner: Owner | None = None
         recipient: Person | None = None
+        if entry.subject_kind == status_rules.PROJECT_SUBJECT and (
+            label == status_rules.CHANGE_CONFIRMER
+        ):
+            if not person_id:
+                raise NotAllowedValue(CONFIRMER_NEEDED)
+            recipient = await self.status.confirmer(viewer, person_id)
         if entry.subject_kind == ITEM_SUBJECT:
             if label == rules.EXTEND and due_date is None:
                 raise NotAllowedValue(NEW_DATE_NEEDED)
@@ -192,6 +219,11 @@ class DecisionService:
                 return assistant, [], False  # pressed twice
             if current.state is not AttentionState.OPEN:
                 raise AlreadyChanged()
+            if current.subject_kind == status_rules.PROJECT_SUBJECT:
+                await self.status.decide(
+                    action, viewer, assistant, current.subject_id or "", label, recipient
+                )
+                return assistant, [], False
             if current.subject_kind != ITEM_SUBJECT:
                 await self._feed_back(action, assistant, current, label)
                 return assistant, [], True
@@ -217,6 +249,7 @@ class DecisionService:
             self.boundary, self.store, viewer.organisation_id, viewer.person_id, work
         )
         await tell(self.boundary, viewer.organisation_id, tells)
+        await self.status.requests.carry_out_approved(assistant)  # e.g. Ask again
         if follow_on:
             await self.work.advance(assistant)
         return await self.entry(viewer, raw_id)

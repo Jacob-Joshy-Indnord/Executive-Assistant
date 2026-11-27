@@ -83,10 +83,15 @@ class SampleAssignment:
     virtual_employee: SamplePerson
     manager: SamplePerson
     state: AssignmentState
+    project_key: str | None = None
 
     @property
     def id(self) -> str:
         return sample_id(f"assignment/{self.key}")
+
+    @property
+    def project_id(self) -> str | None:
+        return sample_id(f"project/{self.project_key}") if self.project_key else None
 
 
 def sample_projects() -> list[SampleProject]:
@@ -104,8 +109,9 @@ def sample_assignments() -> list[SampleAssignment]:
     ops, backend, tester = OPERATIONS_DIRECTOR, BACKEND_ENGINEER, TEST_ENGINEER
     a = SampleAssignment
     return [
-        a("crm_import", "Build the CRM data import", backend, ops, "in_progress"),
-        a("vendor_export", "Fix the vendor list export", backend, ops, "blocked"),
-        a("crm_tests", "Test the CRM rollout", tester, ops, "waiting_for_review"),
-        a("hiring_forms", "Check the hiring plan forms", tester, ops, "approved"),
+        a("crm_import", "Build the CRM data import", backend, ops, "in_progress", "crm_rollout"),
+        a("vendor_export", "Fix the vendor list export", backend, ops, "blocked",
+          "vendor_consolidation"),  # fmt: skip
+        a("crm_tests", "Test the CRM rollout", tester, ops, "waiting_for_review", "crm_rollout"),
+        a("hiring_forms", "Check the hiring plan forms", tester, ops, "approved", "hiring_plan"),
     ]

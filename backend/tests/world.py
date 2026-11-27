@@ -21,8 +21,11 @@ from assistant.models.records import (
     AssistantRecord,
     AttentionEntry,
     ConfirmedStatement,
+    FollowedProject,
     PersonRequest,
+    PersonRequestState,
     PieceOfWork,
+    Report,
     RequestRecord,
     StatementWording,
     WorkKind,
@@ -40,7 +43,11 @@ from standins.sample import (
     ORGANISATION_ADMINISTRATOR,
     ORGANISATION_ID,
     SALES_DIRECTOR,
+    sample_id,
 )
+
+CRM = sample_id("project/crm_rollout")
+"""Followed by the manager in the seeded world (only they see it), confirmed by the Legal lead."""
 
 PERSONAS = {
     "manager": OPERATIONS_DIRECTOR.id,
@@ -65,6 +72,9 @@ class Seeded:
     statement: ConfirmedStatement
     request: RequestRecord
     attention: AttentionEntry
+    followed: FollowedProject
+    report: Report
+    status_ask: PersonRequest
 
 
 @dataclass
@@ -165,7 +175,37 @@ async def seed(module: AssistantModule) -> Seeded:
                 choices=["Renew it", "Let it lapse"],
             )
         )
-    return Seeded(assistant, other, work, item, person_request, statement, request, attention)
+        followed = await tx.add(
+            FollowedProject(
+                **mine,
+                project_id=CRM,
+                confirmer_id=LEGAL_LEAD.id,
+                project_name="CRM rollout",
+                window_start=t,
+                spend_at_start="112500.50",
+                assignment_states={
+                    sample_id("assignment/crm_import"): "in_progress",
+                    sample_id("assignment/crm_tests"): "waiting_for_review",
+                },
+            )
+        )
+        report = await tx.add(Report(**mine, made_by="manager"))
+        status_ask = await tx.add(
+            PersonRequest(
+                **mine,
+                person_id=LEGAL_LEAD.id,
+                asks="status",
+                subject_kind="project",
+                subject_id=CRM,
+                answer_by=t + timedelta(days=7),
+                sent_at=t,
+                state=PersonRequestState.SENT,
+            )
+        )
+    return Seeded(
+        assistant, other, work, item, person_request, statement, request, attention, followed,
+        report, status_ask,
+    )  # fmt: skip
 
 
 async def build_world(**module_options: Any) -> World:

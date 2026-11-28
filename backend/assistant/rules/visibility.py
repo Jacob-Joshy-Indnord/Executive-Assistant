@@ -18,13 +18,17 @@ from assistant.models.records import (
     RECORD_TYPES,
     ActionItem,
     AssistantRecord,
+    Briefing,
+    BriefingSettings,
     ConfirmedStatement,
+    DecisionPaper,
     Meeting,
     MeetingAttendance,
     MeetingNotes,
     PersonRequest,
     Record,
     StatementDraft,
+    TakenDecision,
     Update,
 )
 
@@ -112,6 +116,11 @@ VISIBILITY: dict[str, Rule] = {
     # request made to them (a person request), an owner only their own items and statements.
     MeetingNotes.kind: MANAGER_ONLY,
     MeetingAttendance.kind: MANAGER_ONLY,
+    # The briefing, decision papers and the decisions taken on them are the manager's only.
+    BriefingSettings.kind: MANAGER_ONLY,
+    Briefing.kind: MANAGER_ONLY,
+    DecisionPaper.kind: MANAGER_ONLY,
+    TakenDecision.kind: MANAGER_ONLY,
 }
 
 

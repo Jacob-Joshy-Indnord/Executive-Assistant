@@ -337,6 +337,97 @@ MEETING_EXPECTATIONS: dict[tuple[str, str], Expectation] = {
 }
 
 
+# The briefing and decision papers (part 2, Epic 2) --------------------------------------------
+
+
+def _managers_briefing_settings_untouched_by_others(
+    world: World, persona: str, response: Any
+) -> None:
+    page = world.call("GET", f"{PREFIX}/briefing/settings", PERSONAS["manager"]).json()
+    spend = next(s for s in page["sections"] if s["key"] == "spend")
+    assert spend["ticked"] is (persona != "manager"), (persona, spend)
+
+
+def _only_the_manager_gets_a_briefing(world: World, persona: str, response: Any) -> None:
+    listed = world.call("GET", f"{PREFIX}/briefings", PERSONAS["manager"]).json()
+    assert listed["count"] == (2 if persona == "manager" else 1), (persona, listed["count"])
+
+
+def _only_the_manager_changes_the_briefing(
+    expected: str,
+) -> Callable[[World, str, Any], None]:
+    def check(world: World, persona: str, response: Any) -> None:
+        path = f"{PREFIX}/briefings/{world.seeded.briefing.id}"
+        state = world.call("GET", path, PERSONAS["manager"]).json()["state"]
+        assert state in ((expected,) if persona == "manager" else ("ready",)), (persona, state)
+
+    return check
+
+
+def _seeded_briefing(seeded: Seeded) -> dict[str, str]:
+    return {"briefing_id": str(seeded.briefing.id)}
+
+
+def _seeded_paper(seeded: Seeded) -> dict[str, str]:
+    return {"paper_id": str(seeded.paper.id)}
+
+
+def _the_decided_paper_stays_decided(world: World, persona: str, response: Any) -> None:
+    path = f"{PREFIX}/decision-papers/{world.seeded.paper.id}"
+    state = world.call("GET", path, PERSONAS["manager"]).json()["state"]
+    assert state == "decided", (persona, state)
+
+
+BRIEFING_EXPECTATIONS: dict[tuple[str, str], Expectation] = {
+    ("GET", "/api/assistant/briefing/settings"): Expectation(_no_params, OWN_ASSISTANT),
+    ("PUT", "/api/assistant/briefing/settings"): Expectation(
+        _no_params,
+        OWN_ASSISTANT,
+        body={"sections": {"spend": False}},
+        checks=[_managers_briefing_settings_untouched_by_others],
+    ),
+    ("GET", "/api/assistant/briefings"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/briefings"): Expectation(
+        _no_params, OWN_ASSISTANT, checks=[_only_the_manager_gets_a_briefing]
+    ),
+    ("GET", "/api/assistant/briefings/{briefing_id}"): Expectation(
+        _seeded_briefing, MANAGER_ONLY, returns_id=_own("briefing")
+    ),
+    ("POST", "/api/assistant/briefings/{briefing_id}/open"): Expectation(
+        _seeded_briefing,
+        MANAGER_ONLY,
+        returns_id=_own("briefing"),
+        checks=[_only_the_manager_changes_the_briefing("accepted")],
+    ),
+    ("POST", "/api/assistant/briefings/{briefing_id}/send-back"): Expectation(
+        _seeded_briefing,
+        MANAGER_ONLY,
+        returns_id=_own("briefing"),
+        body={"comment": "Say more about spend."},
+        checks=[_only_the_manager_changes_the_briefing("sent_back")],
+    ),
+    ("GET", "/api/assistant/decision-papers"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/decision-papers/{paper_id}"): Expectation(
+        _seeded_paper, MANAGER_ONLY, returns_id=_own("paper")
+    ),
+    ("POST", "/api/assistant/decision-papers/{paper_id}/decide"): Expectation(
+        _seeded_paper,
+        MANAGER_REACHES,
+        body={"option": 1},
+        checks=[_the_decided_paper_stays_decided],
+    ),
+    ("POST", "/api/assistant/decision-papers/{paper_id}/send-back"): Expectation(
+        _seeded_paper,
+        MANAGER_REACHES,
+        body={"comment": "Add the costs."},
+        checks=[_the_decided_paper_stays_decided],
+    ),
+    ("POST", "/api/assistant/decision-papers/{paper_id}/retry"): Expectation(
+        _seeded_paper, MANAGER_REACHES, checks=[_the_decided_paper_stays_decided]
+    ),
+}
+
+
 EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/assistant"): Expectation(
         _no_params,
@@ -513,6 +604,7 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/waiting-count"): Expectation(_no_params, OWN_ASSISTANT),
     ("GET", "/api/assistant/people"): Expectation(_no_params, EVERYONE),
     **MEETING_EXPECTATIONS,
+    **BRIEFING_EXPECTATIONS,
 }
 
 

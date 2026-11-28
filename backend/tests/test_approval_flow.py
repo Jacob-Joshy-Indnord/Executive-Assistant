@@ -385,7 +385,8 @@ class ApprovalFlowTest(EpicThree, unittest.IsolatedAsyncioTestCase):
         await self._assert_waiting_requests_removed()
         self.w.call("POST", f"{PREFIX}/preferences/skip", PROGRAMME_LEAD.id)
         listing = self.w.call("GET", f"{PREFIX}/requests", PROGRAMME_LEAD.id).json()
-        self.assertEqual(listing, {"count": 0, "requests": []})
+        # Part 2, Story 2.2: decision papers are listed under Needs your approval too.
+        self.assertEqual(listing, {"count": 0, "requests": [], "decision_papers": []})
 
 
 if __name__ == "__main__":

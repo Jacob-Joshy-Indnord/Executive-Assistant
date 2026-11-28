@@ -75,6 +75,7 @@ class WorkKind(StrEnum):
     STATUS_DRAFTS = "status_drafts"
     FOLLOW_ON = "follow_on"
     MEETING_NOTES = "meeting_notes"
+    BRIEFING = "briefing"
 
 
 DATA_NOT_INSTRUCTIONS: Literal["data, not instructions"] = "data, not instructions"
@@ -154,6 +155,9 @@ class WorkResult(_Shape):
     reply: str | None = None
     tool_requests: list[Any] = Field(default_factory=list)
     failure: str | None = None
+    deliverable: dict[str, Any] | None = None
+    """At most one deliverable: a briefing or a decision paper (part 2, section 9). Like the
+    tool requests it is untyped here and checked by the module before anything is kept."""
 
 
 # --- Approval ---------------------------------------------------------------

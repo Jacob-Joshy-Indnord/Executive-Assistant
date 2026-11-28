@@ -60,6 +60,7 @@ from assistant.service.actions import Action, perform
 from assistant.service.approval_levels import approval_request_for
 from assistant.service.assistants import my_assistant
 from assistant.service.closing import CLOSING_HANDLERS, Closing
+from assistant.service.decision_papers import waiting_papers
 from assistant.service.due import DUE_STEPS, DueContext, DueStep
 from assistant.service.log import log_event
 from assistant.service.pausing import running
@@ -579,8 +580,10 @@ class RequestService:
             return await self._view(tx, request, {})
 
     async def waiting(self, viewer: Viewer) -> dict[str, Any]:
-        """Needs your approval: waiting requests, in the order they were asked. A request
+        """Needs your approval: waiting requests, in the order they were asked, and decision
+        papers waiting for a decision, by due date and marked when late (part 2). A request
         whose subject has moved on is not shown; the due step withdraws it."""
+        now = await self.boundary.clock.now()
         async with self.store.transaction(viewer.organisation_id) as tx:
             assistant = await my_assistant(tx, viewer)
             found = await find_visible(
@@ -592,7 +595,8 @@ class RequestService:
                 for r in found
                 if not await subject_has_moved_on(tx, r)
             ]
-        return {"count": len(shown), "requests": shown}
+            papers = await waiting_papers(tx, viewer, assistant, now)
+        return {"count": len(shown) + len(papers), "requests": shown, "decision_papers": papers}
 
     async def done_for_you(self, viewer: Viewer) -> dict[str, Any]:
         """Done for you: what was carried out, undone, or could not be carried out, newest

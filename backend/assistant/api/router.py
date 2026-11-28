@@ -27,6 +27,7 @@ from assistant.rules.visibility import Viewer
 from assistant.service.approval_levels import LevelChange
 from assistant.service.assistants import my_assistant as find_my_assistant
 from assistant.service.container import Services, build_services
+from assistant.service.briefing import BriefingSettingsChange
 from assistant.service.meetings import ShareBody
 from assistant.service.organisation import MeaningsChange
 from assistant.service.setup import page_view
@@ -123,6 +124,22 @@ class OtherDateBody(BaseModel):
 
     due_date: date
     reason: str | None = None
+
+
+class CommentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str | None = None
+    """The manager's comment, up to 500 characters."""
+
+
+class DecideBodyForPaper(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option: int | None = None
+    """The option picked, counted from 1."""
+    decision: str | None = None
+    """Or the manager's own decision, in their words."""
 
 
 class ReasonBody(BaseModel):
@@ -488,6 +505,77 @@ def create_router(boundary: Boundary, store: Store, services: Services | None = 
     @router.get("/reports/{report_id}")
     async def report(report_id: str, viewer: ViewerDep) -> dict[str, Any]:
         return await services.status.report(viewer, report_id)
+
+    # The briefing ------------------------------------------------------------------------
+
+    @router.get("/briefing/settings")
+    async def briefing_settings(viewer: ViewerDep) -> dict[str, Any]:
+        """The briefing's schedule and the sections ticked next to it."""
+        return await services.briefing.settings(viewer)
+
+    @router.put("/briefing/settings")
+    async def change_briefing_settings(
+        change: BriefingSettingsChange, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Weekly, every two weeks, monthly or off, with the day and time; and the sections."""
+        return await services.briefing.change_settings(viewer, change)
+
+    @router.get("/briefings")
+    async def briefings(viewer: ViewerDep) -> dict[str, Any]:
+        return await services.briefing.briefings(viewer)
+
+    @router.post("/briefings")
+    async def briefing_now(viewer: ViewerDep) -> dict[str, Any]:
+        """The manager asks for the briefing: its figures are worked out at once."""
+        assistant, made = await services.briefing.briefing_now(viewer)
+        await services.work.advance(assistant)
+        return await services.briefing.briefing(viewer, str(made.id))
+
+    @router.get("/briefings/{briefing_id}")
+    async def briefing(briefing_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.briefing.briefing(viewer, briefing_id)
+
+    @router.post("/briefings/{briefing_id}/open")
+    async def open_briefing(briefing_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The manager opens the briefing: one that is ready becomes accepted."""
+        return await services.briefing.open_briefing(viewer, briefing_id)
+
+    @router.post("/briefings/{briefing_id}/send-back")
+    async def send_back_briefing(
+        briefing_id: str, body: CommentBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Send it back with a comment: a new version is prepared and both are kept."""
+        return await services.briefing.send_back(viewer, briefing_id, body.comment)
+
+    # Decision papers -----------------------------------------------------------------------
+
+    @router.get("/decision-papers")
+    async def decision_papers(viewer: ViewerDep) -> dict[str, Any]:
+        """Every decision paper there is to show, by due date."""
+        return await services.decision_papers.papers(viewer)
+
+    @router.get("/decision-papers/{paper_id}")
+    async def decision_paper(paper_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.decision_papers.paper(viewer, paper_id)
+
+    @router.post("/decision-papers/{paper_id}/decide")
+    async def decide_paper(
+        paper_id: str, body: DecideBodyForPaper, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Pick an option or write your own decision: recorded, and it cannot be changed."""
+        return await services.decision_papers.decide(viewer, paper_id, body.option, body.decision)
+
+    @router.post("/decision-papers/{paper_id}/send-back")
+    async def send_back_paper(
+        paper_id: str, body: CommentBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Send it back with a comment: a new version is prepared and both are kept."""
+        return await services.decision_papers.send_back(viewer, paper_id, body.comment)
+
+    @router.post("/decision-papers/{paper_id}/retry")
+    async def retry_paper(paper_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """Try again a decision paper that could not be prepared."""
+        return await services.decision_papers.retry(viewer, paper_id)
 
     @router.get("/status-requests")
     async def status_requests(viewer: ViewerDep) -> dict[str, Any]:

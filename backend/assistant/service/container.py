@@ -8,9 +8,11 @@ from assistant.boundary.interfaces import Boundary
 from assistant.service import item_steps, status_steps  # noqa: F401  (register due steps)
 from assistant.service.approval_levels import ApprovalLevelService
 from assistant.service.attendance import AttendanceService
+from assistant.service.briefing import BriefingService
 from assistant.service.checks import ToolChecks
 from assistant.service.closing import ClosingService
 from assistant.service.control import ControlService
+from assistant.service.decision_papers import DecisionPaperService
 from assistant.service.decisions import DecisionService
 from assistant.service.due import DUE_STEPS, DueRunner, DueStepRegistry
 from assistant.service.intake import ToolIntake
@@ -45,6 +47,8 @@ class Services:
     meetings: MeetingService
     attendance: AttendanceService
     notes: NotesService
+    briefing: BriefingService
+    decision_papers: DecisionPaperService
 
 
 def build_services(
@@ -76,6 +80,7 @@ def build_services(
     decisions = DecisionService(boundary, store, items, work, status)
     manager_notices = ManagerNoticeService(boundary, store, requests, decisions)
     due.after_run.append(manager_notices.after)
+    briefing = BriefingService(boundary, store, work)
     control.after_result.append(manager_notices.after)
     control.on_caught_up.append(manager_notices.after)
     return Services(
@@ -96,4 +101,6 @@ def build_services(
         meetings=meetings,
         attendance=attendance,
         notes=notes,
+        briefing=briefing,
+        decision_papers=DecisionPaperService(boundary, store, work),
     )

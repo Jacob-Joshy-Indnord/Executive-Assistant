@@ -13,7 +13,7 @@ so that new kinds are added in one place.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import StrEnum
 from typing import Any, ClassVar, Literal, Self
 from uuid import UUID, uuid4
@@ -28,7 +28,7 @@ from assistant.models.boundary import (
     WorkKind,
 )
 from assistant.models.common import Amount, FlowId, UtcDateTime
-from assistant.models.preferences import PreferencesForm
+from assistant.models.preferences import PreferencesForm, Weekday
 
 # Text limits of section 8.1, in characters.
 ACTION_ITEM_LIMIT = 300
@@ -736,6 +736,198 @@ class MeetingAttendance(MutableRecord):
     """The Meeting kept from its transcript."""
     because: AttendanceBecause | None = None
     state: AttendanceState = AttendanceState.BOOKED
+
+
+# --- The briefing and decision papers (part 2, Epic 2) ----------------------------------
+
+BRIEFING_NOTE_LIMIT = 500
+DECISION_PAPER_LIMIT = 6000
+COMMENT_LIMIT = 500
+MIN_OPTIONS = 2
+MAX_OPTIONS = 5
+
+BriefingFrequency = Literal["weekly", "every_two_weeks", "monthly", "off"]
+BriefingSectionKey = Literal[
+    "action_items", "assignments", "spend", "decisions", "project_status", "meetings"
+]
+BRIEFING_SECTIONS: tuple[BriefingSectionKey, ...] = (
+    "action_items",
+    "assignments",
+    "spend",
+    "decisions",
+    "project_status",
+    "meetings",
+)
+"""The five groups of figures, then Meetings since the last briefing, in the order shown."""
+
+
+class BriefingSettings(MutableRecord):
+    """The briefing's schedule and the sections the manager ticked in Settings next to it.
+    Without one, the briefing is weekly on Mondays at 08:00 with every section."""
+
+    kind: ClassVar[str] = "briefing_settings"
+
+    frequency: BriefingFrequency = "weekly"
+    day: Weekday = Weekday.MONDAY
+    at: time = time(8, 0)
+    """The time of day in the manager's time zone."""
+    sections: list[BriefingSectionKey] = Field(default_factory=lambda: list(BRIEFING_SECTIONS))
+    """The ticked sections; all are on by default."""
+    set_at: UtcDateTime
+    """When the schedule was set: every two weeks counts from the first briefing after it."""
+
+    @property
+    def state(self) -> str:
+        return self.frequency
+
+
+class _Figures(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class ActionItemFigures(_Figures):
+    open: int = Field(ge=0)
+    due_this_week: int = Field(ge=0)
+    late: int = Field(ge=0)
+
+
+class AssignmentFigures(_Figures):
+    in_progress: int = Field(ge=0)
+    waiting_for_manager: int = Field(ge=0)
+
+
+class ProjectSpend(_Figures):
+    project_id: FlowId
+    project_name: str = Field(max_length=200)
+    spend: Amount
+    budget: Amount
+    source_label: str = Field(max_length=200)
+    read_at: UtcDateTime
+
+
+class BriefingFigures(_Figures):
+    """What the module worked out (BR-6). A group that is not in the briefing is ``None``."""
+
+    action_items: ActionItemFigures | None = None
+    assignments: AssignmentFigures | None = None
+    spend: list[ProjectSpend] | None = None
+    decisions_waiting: int | None = Field(default=None, ge=0)
+    project_status: list[ReportLine] | None = None
+
+
+class BriefingNote(_Figures):
+    """One of the assistant's notes, with the inputs of the pack it cites."""
+
+    text: str = Field(min_length=1, max_length=BRIEFING_NOTE_LIMIT)
+    sources: list[str] = Field(min_length=1)
+
+
+class BriefingMeeting(_Figures):
+    """A meeting whose notes were kept since the last briefing, citing its notes."""
+
+    notes_id: UUID
+    title: str = Field(min_length=1, max_length=TITLE_LIMIT)
+    meeting_date: date
+    decisions: list[str] = Field(default_factory=list)
+    open_points: list[str] = Field(default_factory=list)
+    source: str = Field(max_length=200)
+    """The label its notes have in the briefing's input pack."""
+
+
+class BriefingVersion(_Figures):
+    number: int = Field(ge=1)
+    notes: dict[str, list[BriefingNote]] = Field(default_factory=dict)
+    """The assistant's notes for each section."""
+    notes_prepared: bool = True
+    """False when the notes were refused twice: the figures are shown alone."""
+    arrived_at: UtcDateTime
+    comment: str | None = Field(default=None, max_length=COMMENT_LIMIT)
+    """The manager's comment when they sent this version back."""
+    sent_back_at: UtcDateTime | None = None
+
+
+class BriefingState(StrEnum):
+    PREPARING = "preparing"
+    READY = "ready"
+    ACCEPTED = "accepted"
+    SENT_BACK = "sent_back"
+
+
+class Briefing(MutableRecord):
+    """One briefing: the figures the module worked out, the meetings kept since the last
+    briefing, and each version of the assistant's notes. Every version is kept."""
+
+    kind: ClassVar[str] = "briefing"
+
+    made_by: Literal["schedule", "manager"] = "schedule"
+    due_at: UtcDateTime | None = None
+    """For a scheduled briefing: the time it was due."""
+    since: UtcDateTime | None = None
+    """When the last briefing was made; ``None`` for the first."""
+    sections: list[BriefingSectionKey] = Field(default_factory=list)
+    figures: BriefingFigures = Field(default_factory=BriefingFigures)
+    meetings: list[BriefingMeeting] = Field(default_factory=list)
+    versions: list[BriefingVersion] = Field(default_factory=list)
+    work_id: UUID | None = None
+    """The piece of work preparing the next version."""
+    refusals: int = Field(default=0, ge=0)
+    """How many times the version being prepared was refused."""
+    state: BriefingState = BriefingState.PREPARING
+
+
+class PaperVersion(_Figures):
+    number: int = Field(ge=1)
+    decision: str = Field(min_length=1, max_length=DECISION_PAPER_LIMIT)
+    background: str = Field(default="", max_length=DECISION_PAPER_LIMIT)
+    options: list[str] = Field(min_length=MIN_OPTIONS, max_length=MAX_OPTIONS)
+    recommendation: str = Field(min_length=1, max_length=DECISION_PAPER_LIMIT)
+    due_date: date
+    sources: list[str] = Field(min_length=1)
+    arrived_at: UtcDateTime
+    comment: str | None = Field(default=None, max_length=COMMENT_LIMIT)
+    """The manager's comment when they sent this version back."""
+    sent_back_at: UtcDateTime | None = None
+
+
+class DecisionPaperState(StrEnum):
+    PREPARING = "preparing"
+    """Being prepared or asked for once more; never shown with content."""
+    READY = "ready"
+    SENT_BACK = "sent_back"
+    DECIDED = "decided"
+    NOT_PREPARED = "not_prepared"
+    """Refused twice: the manager sees that it could not be prepared, with Try again."""
+
+
+class DecisionPaper(MutableRecord):
+    """A decision put to the manager with options and a recommendation. Only versions that
+    passed the checks are kept; a refused paper is never kept or shown."""
+
+    kind: ClassVar[str] = "decision_paper"
+
+    message_id: UUID | None = None
+    """The manager's message that asked for it."""
+    work_id: UUID | None = None
+    """The piece of work preparing the next version."""
+    versions: list[PaperVersion] = Field(default_factory=list)
+    refusals: int = Field(default=0, ge=0)
+    decision_id: UUID | None = None
+    follow_on_work_id: UUID | None = None
+    state: DecisionPaperState = DecisionPaperState.PREPARING
+
+
+class TakenDecision(AppendOnlyRecord):
+    """A decision the manager took on a paper. Recorded before it takes effect, and never
+    changed or removed (BR-7): a later decision is a new one."""
+
+    kind: ClassVar[str] = "taken_decision"
+
+    paper_id: UUID
+    version: int = Field(ge=1)
+    option: int | None = Field(default=None, ge=1, le=MAX_OPTIONS)
+    """The option picked, counted from 1; ``None`` when the manager wrote their own."""
+    text: str = Field(min_length=1, max_length=DECISION_PAPER_LIMIT)
+    decided_by: FlowId
 
 
 def append_only_kinds() -> frozenset[str]:

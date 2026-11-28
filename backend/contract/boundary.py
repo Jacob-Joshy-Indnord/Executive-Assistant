@@ -45,6 +45,7 @@ from assistant.models.boundary import (
     UndoResult,
     WorkKind,
     WorkOrder,
+    WorkResult,
 )
 from assistant.rules.sentences import is_plain_sentence
 
@@ -194,6 +195,15 @@ class BoundaryContract(_Base):
         self.assertIsInstance(result, StartResult)
         if not result.accepted:
             self.assertTrue(is_plain_sentence(result.reason), result.reason)
+
+    def test_a_finished_piece_of_work_can_carry_one_deliverable(self) -> None:
+        """Part 2: Flow's "Finish a piece of work" can carry one deliverable, a briefing or a
+        decision paper; the rest of the result is as before."""
+        deliverable = {"kind": "briefing", "sections": []}
+        result = WorkResult(work_id=uuid4(), reply="Done.", deliverable=deliverable)
+        self.assertEqual(result.deliverable, deliverable)
+        self.assertEqual(WorkResult.model_validate(result.model_dump(mode="json")), result)
+        self.assertIsNone(WorkResult(work_id=uuid4()).deliverable)
 
     # Approval ---------------------------------------------------------------
 

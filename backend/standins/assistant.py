@@ -29,6 +29,10 @@ CHOICE_KIND = "choice"
 MEETING_KIND = "meeting"
 PARTS_KIND = "transcript_parts"
 NOTES_KIND = "meeting_notes"
+FIGURES_KIND = "briefing_figures"
+PAPER_KIND = "decision_paper"
+PAPER_DAYS = 7
+"""A decision paper is due this many days after it is written."""
 SUMMARY_LINES = 2
 """The first lines of a transcript the summary is written from."""
 MISSING_PART = 9999
@@ -71,6 +75,7 @@ class ScriptedAssistant:
             WorkKind.STATUS_DRAFTS: self._answer_status_drafts,
             WorkKind.FOLLOW_ON: self._answer_follow_on,
             WorkKind.MEETING_NOTES: self._answer_meeting_notes,
+            WorkKind.BRIEFING: self._answer_briefing,
         }
 
     async def start_work(self, order: WorkOrder) -> StartResult:
@@ -98,6 +103,8 @@ class ScriptedAssistant:
             return result
         if order.kind is WorkKind.MEETING_NOTES:
             return result.model_copy(update={"tool_requests": _faulty_notes(result.tool_requests)})
+        if order.kind is WorkKind.BRIEFING:
+            return result.model_copy(update={"deliverable": _unsourced(result.deliverable)})
         return result.model_copy(
             update={"tool_requests": [*result.tool_requests, *self._faulty(order, now)]}
         )
@@ -105,6 +112,11 @@ class ScriptedAssistant:
     # Prepared answers -------------------------------------------------------
 
     def _answer_request(self, order: WorkOrder, now: datetime) -> WorkResult:
+        paper = _decision_paper(order, now)
+        if paper is not None:
+            return WorkResult(
+                work_id=order.work_id, reply="I prepared a decision paper.", deliverable=paper
+            )
         message = _first(order.input_pack.inputs, MESSAGE_KIND)
         match = _REMIND.match(message.content) if message else None
         notes = _first(order.input_pack.inputs, NOTES_KIND)
@@ -195,6 +207,41 @@ class ScriptedAssistant:
                 )
         return WorkResult(work_id=order.work_id, tool_requests=[notes])
 
+    def _answer_briefing(self, order: WorkOrder, now: datetime) -> WorkResult:
+        """A briefing note for each section of figures, and one for each kept meeting, each
+        citing the input it was written from. Its figures are the module's, never its own."""
+        inputs = order.input_pack.inputs
+        figures = [i for i in inputs if i.kind == FIGURES_KIND]
+        meetings = [i for i in inputs if i.kind == NOTES_KIND]
+        if not figures and not meetings:
+            reply = "There were no figures to write about."
+            return WorkResult(work_id=order.work_id, reply=reply)
+        sections: list[dict[str, Any]] = [
+            {
+                "section": item.subject_id,
+                "notes": [{"text": _figures_note(item), "sources": [item.label]}],
+            }
+            for item in figures
+        ]
+        if meetings:
+            sections.append(
+                {
+                    "section": "meetings",
+                    "notes": [
+                        {
+                            "text": f"{_title_of(item.label)} was kept with its notes.",
+                            "sources": [item.label],
+                        }
+                        for item in meetings
+                    ],
+                }
+            )
+        return WorkResult(
+            work_id=order.work_id,
+            reply=f"I wrote notes on {len(sections)} sections.",
+            deliverable={"kind": "briefing", "sections": sections},
+        )
+
     # Faults -----------------------------------------------------------------
 
     @staticmethod
@@ -274,3 +321,58 @@ def _from_notes(notes: PackInput) -> str:
     ]
     said = " ".join(lines[:4]) or "There is nothing more in them."
     return f"From {notes.label}: {said}"[:4000]
+
+
+def _figures_note(item: PackInput) -> str:
+    """One sentence on a section's figures, from the figures as given."""
+    title = item.label.removeprefix("Figures: ")
+    try:
+        figures = json.loads(item.content)
+    except ValueError:
+        figures = None
+    if isinstance(figures, dict):
+        said = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in sorted(figures.items()))
+        return f"{title}: {said}."[:500]
+    if isinstance(figures, list):
+        return f"{title}: {len(figures)} lines to look at."
+    return f"{title}: see the figures."
+
+
+def _title_of(label: str) -> str:
+    return label.removeprefix("Meeting notes: ")
+
+
+def _unsourced(deliverable: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A briefing with a note that cites nothing, beside the good notes."""
+    if not deliverable or not deliverable.get("sections"):
+        return deliverable
+    first, *rest = deliverable["sections"]
+    unsourced = {"text": "A note without a source.", "sources": []}
+    first = {**first, "notes": [*first["notes"], unsourced]}
+    return {**deliverable, "sections": [first, *rest]}
+
+
+def _decision_paper(order: WorkOrder, now: datetime) -> dict[str, Any] | None:
+    """A decision paper when the manager's message asks "Should we", or for a paper sent
+    back: two options, a recommendation, due in a week, citing what it was written from."""
+    inputs = order.input_pack.inputs
+    message = _first(inputs, MESSAGE_KIND)
+    asked = message if message and "should we" in message.content.casefold() else None
+    previous = _first(inputs, PAPER_KIND)
+    source = asked or previous
+    if source is None:
+        return None
+    if asked is not None:
+        question = asked.content.strip()
+    else:
+        first = source.content.splitlines()[0] if source.content else ""
+        question = first.removeprefix("Decision: ").strip() or "The decision sent back"
+    return {
+        "kind": "decision_paper",
+        "decision": question[:300],
+        "background": f"Written from {source.label}.",
+        "options": ["Yes, go ahead", "No, not now"],
+        "recommendation": "Yes, go ahead",
+        "due_date": (now.date() + timedelta(days=PAPER_DAYS)).isoformat(),
+        "sources": [source.label],
+    }

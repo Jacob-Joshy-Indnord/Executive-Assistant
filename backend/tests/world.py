@@ -22,7 +22,12 @@ from assistant.models.records import (
     AssistantRecord,
     AttendanceState,
     AttentionEntry,
+    Briefing,
+    BriefingState,
+    BriefingVersion,
     ConfirmedStatement,
+    DecisionPaper,
+    DecisionPaperState,
     FollowedProject,
     Meeting,
     MeetingAttendance,
@@ -31,6 +36,7 @@ from assistant.models.records import (
     NoteAction,
     NoteLine,
     OrganisationSettings,
+    PaperVersion,
     PersonRequest,
     PersonRequestState,
     PieceOfWork,
@@ -107,6 +113,10 @@ class Seeded:
     attendance: MeetingAttendance
     """A booking for a meeting the Legal lead organises, waiting for them to answer."""
     organiser_ask: PersonRequest
+    briefing: Briefing
+    """Last week's briefing, ready: its notes could not be prepared."""
+    paper: DecisionPaper
+    """A decision paper the manager already decided: it waits for nothing."""
 
 
 @dataclass
@@ -311,9 +321,41 @@ async def seed(module: AssistantModule) -> Seeded:
                 state=PersonRequestState.SENT,
             )
         )
+        last_week = t - timedelta(days=7)
+        briefing = await tx.add(
+            Briefing(
+                organisation_id=org,
+                assistant_id=assistant.id,
+                created_at=last_week,
+                made_by="schedule",
+                due_at=last_week,
+                sections=["decisions"],
+                versions=[BriefingVersion(number=1, notes_prepared=False, arrived_at=last_week)],
+                state=BriefingState.READY,
+            )
+        )
+        paper = await tx.add(
+            DecisionPaper(
+                organisation_id=org,
+                assistant_id=assistant.id,
+                created_at=last_week,
+                versions=[
+                    PaperVersion(
+                        number=1,
+                        decision="Renew the cleaning contract?",
+                        options=["Renew it", "Let it lapse"],
+                        recommendation="Renew it",
+                        due_date=date(2026, 11, 20),
+                        sources=["Message from the manager"],
+                        arrived_at=last_week,
+                    )
+                ],
+                state=DecisionPaperState.DECIDED,
+            )
+        )
     return Seeded(
         assistant, other, work, item, person_request, statement, request, attention, followed,
-        report, status_ask, shared_meeting, notes, attendance, organiser_ask,
+        report, status_ask, shared_meeting, notes, attendance, organiser_ask, briefing, paper,
     )  # fmt: skip
 
 

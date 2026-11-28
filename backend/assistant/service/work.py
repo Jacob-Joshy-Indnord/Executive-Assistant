@@ -60,6 +60,15 @@ StartOutcome = Literal["idle", "busy", "started", "refused", "failed"]
 FinishHook = Callable[[Action, AssistantRecord, PieceOfWork], Awaitable[None]]
 """Run inside the action in which a piece of work is done, refused or failed."""
 
+DeliverableHandler = Callable[
+    [Action, AssistantRecord, PieceOfWork, dict[str, Any]], Awaitable[list[str]]
+]
+"""Checks and keeps one deliverable of its kind; returns why it was refused, if it was."""
+
+UNKNOWN_DELIVERABLE = (
+    "The deliverable was refused because it is not a briefing or a decision paper."
+)
+
 
 class ToolRequestHandler(Protocol):
     """What the checks (Story 3.2) and the approval flow (Story 3.3) plug in."""
@@ -139,6 +148,8 @@ class WorkService:
         self.tool_requests: ToolRequestHandler = RefuseToolRequests()
         self.on_finished: list[FinishHook] = []
         """E.g. the meeting whose notes a piece of work was writing fails when it does."""
+        self.deliverables: dict[str, DeliverableHandler] = {}
+        """Handlers for each kind of deliverable a result can carry, e.g. ``briefing``."""
 
     async def _finished(
         self, action: Action, assistant: AssistantRecord, piece: PieceOfWork
@@ -477,6 +488,8 @@ class WorkService:
         refused.extend(
             await self.tool_requests.take(action, assistant, piece, list(result.tool_requests))
         )
+        if result.deliverable is not None:
+            refused.extend(await self._take_deliverable(action, assistant, piece, result))
         return await action.change(
             "assistant.work_done",
             piece,
@@ -485,6 +498,16 @@ class WorkService:
             ),
             details={"refused_count": len(refused)},
         )
+
+    async def _take_deliverable(
+        self, action: Action, assistant: AssistantRecord, piece: PieceOfWork, result: WorkResult
+    ) -> list[str]:
+        """The one deliverable a result can carry, handed to the handler of its kind."""
+        raw = result.deliverable or {}
+        handler = self.deliverables.get(str(raw.get("kind")))
+        if handler is None:
+            return [UNKNOWN_DELIVERABLE]
+        return await handler(action, assistant, piece, raw)
 
     async def _free_slot(self, action: Action, assistant: AssistantRecord, work_id: UUID) -> None:
         slot = await action.get(WorkSlot, slot_id(assistant))

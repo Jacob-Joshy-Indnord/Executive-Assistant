@@ -90,6 +90,11 @@ class RecordShapesTest(unittest.TestCase):
                 "meeting",
                 "meeting_notes",
                 "meeting_attendance",
+                # Part 2, Epic 2: the briefing and decision papers.
+                "briefing_settings",
+                "briefing",
+                "decision_paper",
+                "taken_decision",
             },
         )
         for kind, cls in RECORD_TYPES.items():
@@ -110,7 +115,8 @@ class RecordShapesTest(unittest.TestCase):
             _item(text="x" * 301)
 
     def test_only_confirmed_statements_and_reports_are_append_only(self) -> None:
-        self.assertEqual(append_only_kinds(), {"confirmed_statement", "report"})
+        # Part 2 adds a taken decision, which cannot be changed either (BR-7 of part 2).
+        self.assertEqual(append_only_kinds(), {"confirmed_statement", "report", "taken_decision"})
         self.assertTrue(issubclass(ConfirmedStatement, AppendOnlyRecord))
         self.assertTrue(issubclass(Report, AppendOnlyRecord))
         self.assertFalse(issubclass(ConfirmedStatement, MutableRecord))

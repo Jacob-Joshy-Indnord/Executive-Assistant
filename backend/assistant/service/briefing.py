@@ -48,6 +48,7 @@ from assistant.models.records import (
     DecisionPaper,
     MeetingNotes,
     PieceOfWork,
+    SignalKind,
 )
 from assistant.rules import briefing as rules
 from assistant.rules.input_pack import pack_label
@@ -60,6 +61,7 @@ from assistant.service.meeting_notes import NOTES_INPUT_KIND, confirmed_of, note
 from assistant.service.notices import Tell, tell
 from assistant.service.requests import RequestService
 from assistant.service.setup import settings_for
+from assistant.service.signals import keep_signal
 from assistant.service.status import StatusService
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.service.work import WorkService
@@ -665,6 +667,14 @@ class BriefingService:
                 given,
                 viewer.person_id,
                 name="assistant.briefing_sent_back",
+            )
+            await keep_signal(
+                action,
+                assistant,
+                SignalKind.BRIEFING_SENT_BACK,
+                subject_kind="briefing",
+                subject_id=str(briefing.id),
+                said=said,
             )
             return assistant, sent
 

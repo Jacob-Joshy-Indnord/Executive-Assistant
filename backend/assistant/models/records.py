@@ -707,6 +707,8 @@ AttendanceBecause = Literal[
     "not_let_in",
     "no_transcript",
     "notes_failed",
+    "handed_over",
+    "ended",
 ]
 
 
@@ -928,6 +930,108 @@ class TakenDecision(AppendOnlyRecord):
     """The option picked, counted from 1; ``None`` when the manager wrote their own."""
     text: str = Field(min_length=1, max_length=DECISION_PAPER_LIMIT)
     decided_by: FlowId
+
+
+# --- Learning (part 2, Epic 3) ----------------------------------------------------------
+
+SIGNAL_TEXT_LIMIT = 6000
+LESSON_LIMIT = 500
+AREA_LIMIT = 50
+MAX_TRACK_RECORD = 20
+
+
+class SignalKind(StrEnum):
+    DRAFT_EDITED = "draft_edited"
+    DRAFT_APPROVED = "draft_approved"
+    DRAFT_DECLINED = "draft_declined"
+    BRIEFING_SENT_BACK = "briefing_sent_back"
+    PAPER_SENT_BACK = "paper_sent_back"
+    NOTES_CORRECTED = "notes_corrected"
+    STATEMENT_CORRECTED = "statement_corrected"
+    ITEM_ON_TIME = "item_on_time"
+    ITEM_LATE = "item_late"
+
+
+class Signal(MutableRecord):
+    """Something that happened that the assistant can learn from. It may hold the before
+    and after wording, so it is its manager's only and goes at hand-over or end; its change
+    record and logs hold ids and kinds only. It never holds transcript text."""
+
+    kind: ClassVar[str] = "signal"
+
+    signal_kind: SignalKind
+    subject_kind: str = Field(max_length=50)
+    subject_id: str | None = Field(default=None, max_length=200)
+    action_kind: ActionKind | None = None
+    """For a draft: the kind of action it was for."""
+    before: str | None = Field(default=None, max_length=SIGNAL_TEXT_LIMIT)
+    after: str | None = Field(default=None, max_length=SIGNAL_TEXT_LIMIT)
+    said: str | None = Field(default=None, max_length=SIGNAL_TEXT_LIMIT)
+    """The manager's own comment or reason, e.g. when a deliverable is sent back."""
+
+
+class LessonState(StrEnum):
+    PROPOSED = "proposed"
+    KEPT = "kept"
+
+
+LessonOrigin = Literal["assistant", "your_words", "typed", "form"]
+"""Proposed by the assistant from signals; stated from the manager's own message; typed by
+the manager on the page; or an answer of the preferences form."""
+
+
+class Lesson(MutableRecord):
+    """One entry of the learning record. Only kept lessons reach an input pack."""
+
+    kind: ClassVar[str] = "lesson"
+
+    area: str = Field(min_length=1, max_length=AREA_LIMIT)
+    text: str = Field(min_length=1, max_length=LESSON_LIMIT)
+    origin: LessonOrigin
+    signal_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    """The signals it rests on, when the assistant proposed it from signals."""
+    signal_kinds: list[SignalKind] = Field(default_factory=list, max_length=50)
+    message_id: UUID | None = None
+    """The manager's message it quotes, word for word, when it is stated."""
+    form_key: str | None = Field(default=None, max_length=50)
+    """The answer of the preferences form it comes from."""
+    edited: bool = False
+    """The manager edited it: it is kept in their wording."""
+    kept_at: UtcDateTime | None = None
+    state: LessonState = LessonState.PROPOSED
+
+
+class RemovedLesson(MutableRecord):
+    """That a lesson was removed: a one-way digest of its words (ignoring capitals and
+    spacing), so the same words are not proposed again. The words themselves are gone."""
+
+    kind: ClassVar[str] = "removed_lesson"
+
+    digest: str = Field(min_length=64, max_length=64)
+
+
+class SuggestionState(StrEnum):
+    OPEN = "open"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class ApprovalSuggestion(MutableRecord):
+    """The assistant's suggestion of a wider approval level, with the track record the
+    module counted itself. Only the manager's acceptance changes a level."""
+
+    kind: ClassVar[str] = "approval_suggestion"
+
+    action_kind: ActionKind
+    level_before: ApprovalLevel
+    proposed_level: ApprovalLevel
+    considered: int = Field(ge=0, le=MAX_TRACK_RECORD)
+    approved_unchanged: int = Field(ge=0, le=MAX_TRACK_RECORD)
+    request_ids: list[UUID] = Field(default_factory=list, max_length=MAX_TRACK_RECORD)
+    """The requests the track record was counted from, newest last."""
+    decided_by: FlowId | None = None
+    decided_at: UtcDateTime | None = None
+    state: SuggestionState = SuggestionState.OPEN
 
 
 def append_only_kinds() -> frozenset[str]:

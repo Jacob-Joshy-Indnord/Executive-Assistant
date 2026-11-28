@@ -22,6 +22,9 @@ FLOW = "flow"
 ALREADY_HAS_ONE = "This manager already has an Executive Assistant."
 
 SetUpHook = Callable[[Action, AssistantRecord], Awaitable[None]]
+FormSavedHook = Callable[
+    [Action, AssistantRecord, PreferencesForm | None, PreferencesForm], Awaitable[None]
+]
 
 
 def page_view(assistant: AssistantRecord, running: bool) -> dict[str, Any]:
@@ -74,6 +77,9 @@ class SetupService:
         self.store = store
         self.on_set_up: list[SetUpHook] = []
         """Run inside the set-up action, e.g. to give the assistant its starting levels."""
+        self.on_form_saved: list[FormSavedHook] = []
+        """Run inside the action that saves the form, with the answers before and after,
+        e.g. to keep one lesson for each answer (part 2, Epic 3)."""
 
     async def ensure_can_take_an_assistant(self, organisation_id: str, manager_id: str) -> None:
         """A manager must be a person of the organisation; checked outside any transaction."""
@@ -187,12 +193,15 @@ class SetupService:
                     ),
                 )
             if form is not None:
+                before = preferences.form if preferences.saved else None
                 preferences = await action.change(
                     "assistant.form_saved",
                     preferences,
                     preferences.evolve(form=form, saved=True, skipped=False),
                     details={"parts": sorted(form.model_dump(exclude_none=True))},
                 )
+                for hook in self.on_form_saved:
+                    await hook(action, assistant, before, form)
             elif not preferences.saved and not preferences.skipped:
                 preferences = await action.change(
                     "assistant.form_skipped", preferences, preferences.evolve(skipped=True)

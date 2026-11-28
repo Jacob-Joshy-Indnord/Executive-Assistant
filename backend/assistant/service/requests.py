@@ -34,6 +34,7 @@ from assistant.models.records import (
     AssistantRecord,
     RequestRecord,
     RequestState,
+    SignalKind,
 )
 from assistant.rules.requests import (
     CANNOT_EDIT,
@@ -66,6 +67,7 @@ from assistant.service.log import log_event
 from assistant.service.pausing import running
 from assistant.service.request_kinds import REQUEST_KINDS, kind_of, subject_has_moved_on
 from assistant.service.setup import FLOW, settings_for
+from assistant.service.signals import keep_signal
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.store.interface import Store, Transaction
 
@@ -388,6 +390,16 @@ class RequestService:
                 ),
                 details={"edited": edited is not None},
             )
+            await keep_signal(
+                action,
+                assistant,
+                SignalKind.DRAFT_EDITED if edited is not None else SignalKind.DRAFT_APPROVED,
+                subject_kind="request",
+                subject_id=str(request.id),
+                action_kind=request.action_kind,
+                before=request.text,
+                after=edited if edited is not None else request.text,
+            )
             return "approved"
 
         outcome = await perform(
@@ -410,7 +422,7 @@ class RequestService:
             raise NotAllowedValue(problem)
 
         async def work(action: Action) -> None:
-            request, _ = await self._mine(action, viewer, request_id)
+            request, assistant = await self._mine(action, viewer, request_id)
             if request.state is RequestState.DECLINED and request.declined_by == "manager":
                 return  # pressed twice
             if request.state is not RequestState.WAITING:
@@ -425,6 +437,16 @@ class RequestService:
                     decided_at=action.now,
                 ),
                 details={"declined_by": "manager", "with_reason": reason is not None},
+            )
+            await keep_signal(
+                action,
+                assistant,
+                SignalKind.DRAFT_DECLINED,
+                subject_kind="request",
+                subject_id=str(request.id),
+                action_kind=request.action_kind,
+                before=request.text,
+                said=reason,
             )
 
         await perform(self.boundary, self.store, viewer.organisation_id, viewer.person_id, work)

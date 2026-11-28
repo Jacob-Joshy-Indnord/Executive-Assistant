@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from assistant.boundary.interfaces import Boundary
 from assistant.service import item_steps, status_steps  # noqa: F401  (register due steps)
+from assistant.service import forgetting  # noqa: F401  (register closing handlers)
 from assistant.service.approval_levels import ApprovalLevelService
 from assistant.service.attendance import AttendanceService
 from assistant.service.briefing import BriefingService
@@ -17,6 +18,7 @@ from assistant.service.decisions import DecisionService
 from assistant.service.due import DUE_STEPS, DueRunner, DueStepRegistry
 from assistant.service.intake import ToolIntake
 from assistant.service.items import ItemService
+from assistant.service.learning import LearningService, form_saved
 from assistant.service.manager_notices import ManagerNoticeService
 from assistant.service.meeting_notes import NotesService
 from assistant.service.meetings import MeetingService
@@ -49,6 +51,7 @@ class Services:
     notes: NotesService
     briefing: BriefingService
     decision_papers: DecisionPaperService
+    learning: LearningService
 
 
 def build_services(
@@ -57,6 +60,7 @@ def build_services(
     setup = SetupService(boundary, store)
     levels = ApprovalLevelService(boundary, store)
     setup.on_set_up.append(levels.create_defaults)
+    setup.on_form_saved.append(form_saved)
     due = DueRunner(boundary, store, due_steps if due_steps is not None else DUE_STEPS)
     control = ControlService(boundary, store, due)
     work = WorkService(boundary, store)
@@ -69,6 +73,9 @@ def build_services(
     work.on_finished.append(meetings.work_finished)
     intake.handlers["meeting_notes"] = meetings.take_notes
     intake.handlers["attend_meeting"] = attendance.propose_attend
+    learning = LearningService(boundary, store)
+    intake.handlers["propose_learning"] = learning.propose
+    intake.handlers["suggest_approval_change"] = learning.suggest
     control.result_handler = work.handle_result
     control.on_caught_up.append(requests.carry_out_approved)
     control.on_caught_up.append(work.advance)
@@ -103,4 +110,5 @@ def build_services(
         notes=notes,
         briefing=briefing,
         decision_papers=DecisionPaperService(boundary, store, work),
+        learning=learning,
     )

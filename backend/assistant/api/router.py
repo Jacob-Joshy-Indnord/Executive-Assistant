@@ -142,6 +142,21 @@ class DecideBodyForPaper(BaseModel):
     """Or the manager's own decision, in their words."""
 
 
+class LessonBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None = None
+    """The lesson in the manager's words, up to 500 characters."""
+    area: str | None = None
+    """What it is about, e.g. ``tone``; leave out for ``general``."""
+
+
+class LessonEditBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None = None
+
+
 class ReasonBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -760,5 +775,77 @@ def create_router(boundary: Boundary, store: Store, services: Services | None = 
     async def colours(viewer: ViewerDep) -> list[dict[str, Any]]:
         """Each colour with its meaning, for the person giving or confirming a status."""
         return await services.organisation.colours(viewer)
+
+    # Learning (part 2, Epic 3): the manager's only -----------------------------------------
+
+    @router.get("/learning")
+    async def learned(viewer: ViewerDep) -> dict[str, Any]:
+        """What I've learned: the lessons, the suggestions and this month's improvement."""
+        return await services.learning.learned(viewer)
+
+    @router.get("/learning/signals")
+    async def signals(viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.signals(viewer)
+
+    @router.get("/learning/signals/{signal_id}")
+    async def signal(signal_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.signal(viewer, signal_id)
+
+    @router.get("/learning/lessons")
+    async def lessons(viewer: ViewerDep) -> dict[str, Any]:
+        """Each lesson with its text, its evidence in one line, and where it came from."""
+        return await services.learning.lessons(viewer)
+
+    @router.post("/learning/lessons")
+    async def add_lesson(body: LessonBody, viewer: ViewerDep) -> dict[str, Any]:
+        """The manager types a lesson: it is stated, and applies at once."""
+        return await services.learning.add(viewer, body.text, body.area)
+
+    @router.delete("/learning/lessons")
+    async def clear_lessons(viewer: ViewerDep) -> dict[str, Any]:
+        """Clear the record: every kept and proposed lesson is removed."""
+        return await services.learning.clear(viewer)
+
+    @router.get("/learning/lessons/{lesson_id}")
+    async def lesson(lesson_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.lesson(viewer, lesson_id)
+
+    @router.put("/learning/lessons/{lesson_id}")
+    async def edit_lesson(
+        lesson_id: str, body: LessonEditBody, viewer: ViewerDep
+    ) -> dict[str, Any]:
+        """Kept in the manager's wording; applies at once (BR-8)."""
+        return await services.learning.edit(viewer, lesson_id, body.text)
+
+    @router.post("/learning/lessons/{lesson_id}/keep")
+    async def keep_lesson(lesson_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.keep(viewer, lesson_id)
+
+    @router.delete("/learning/lessons/{lesson_id}")
+    async def remove_lesson(lesson_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.remove(viewer, lesson_id)
+
+    @router.get("/learning/suggestions")
+    async def suggestions(viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.suggestions(viewer)
+
+    @router.get("/learning/suggestions/{suggestion_id}")
+    async def suggestion(suggestion_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        return await services.learning.suggestion(viewer, suggestion_id)
+
+    @router.post("/learning/suggestions/{suggestion_id}/accept")
+    async def accept_suggestion(suggestion_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The level changes to the proposed one, and the change is recorded."""
+        return await services.learning.accept(viewer, suggestion_id)
+
+    @router.post("/learning/suggestions/{suggestion_id}/decline")
+    async def decline_suggestion(suggestion_id: str, viewer: ViewerDep) -> dict[str, Any]:
+        """The same suggestion is refused for 30 days."""
+        return await services.learning.decline(viewer, suggestion_id)
+
+    @router.get("/learning/improvement")
+    async def improvement(viewer: ViewerDep) -> dict[str, Any]:
+        """This month's figures beside last month's."""
+        return await services.learning.improvement(viewer)
 
     return router

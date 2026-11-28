@@ -10,6 +10,9 @@ From a transcript it uses the lines that begin with "Decision:", "Action:",
 "Open:" and "Status:", and no other line, and writes a summary from the first
 lines. Asked about a past meeting, it answers from the notes in its pack and
 names them.
+
+When the signals in its pack show that the manager edited two drafts of the same
+kind, it proposes one lesson (``propose_learning``) that names those signals.
 """
 
 from __future__ import annotations
@@ -21,7 +24,14 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from assistant.boundary.interfaces import Clock
-from assistant.models.boundary import PackInput, StartResult, WorkKind, WorkOrder, WorkResult
+from assistant.models.boundary import (
+    PackInput,
+    PackSignal,
+    StartResult,
+    WorkKind,
+    WorkOrder,
+    WorkResult,
+)
 
 MESSAGE_KIND = "message"
 PROJECT_NEWS_KIND = "project_news"
@@ -36,6 +46,9 @@ PAPER_DAYS = 7
 SUMMARY_LINES = 2
 """The first lines of a transcript the summary is written from."""
 MISSING_PART = 9999
+LIKE_EDITS = 2
+"""Edits of the same kind after which the stand-in proposes a lesson."""
+EDITED_DRAFT = "draft_edited"
 
 ACTION_ITEM_TEXT_LIMIT = 300
 UNKNOWN_NAME = "Nobody Of That Name"
@@ -99,6 +112,9 @@ class ScriptedAssistant:
         """The prepared answer for this order, with faults added when the switch is on."""
         now = await self._clock.now()
         result = self._answers[order.kind](order, now)
+        lesson = _lesson_from_edits(order.input_pack.signals)
+        if lesson is not None:
+            result = result.model_copy(update={"tool_requests": [*result.tool_requests, lesson]})
         if not self.faults:
             return result
         if order.kind is WorkKind.MEETING_NOTES:
@@ -266,6 +282,24 @@ class ScriptedAssistant:
             item(text="x" * (ACTION_ITEM_TEXT_LIMIT + 1)),
             item(priority="high"),
         ]
+
+
+def _lesson_from_edits(signals: list[PackSignal]) -> dict[str, Any] | None:
+    """One lesson when the manager edited two drafts of the same kind, naming those edits."""
+    edits: dict[str, list[PackSignal]] = {}
+    for signal in signals:
+        if signal.kind == EDITED_DRAFT:
+            edits.setdefault(signal.action_kind or "draft", []).append(signal)
+    for kind, like in edits.items():
+        if len(like) >= LIKE_EDITS:
+            what = kind.replace("_", " ")
+            return {
+                "tool": "propose_learning",
+                "area": "drafts",
+                "lesson": f"For drafts to {what}, write them the way you edited the last ones.",
+                "evidence": [str(s.id) for s in like],
+            }
+    return None
 
 
 def _first(inputs: list[PackInput], kind: str) -> PackInput | None:

@@ -26,6 +26,7 @@ from standins.sample import FINANCE_LEAD, OPERATIONS_DIRECTOR, OUTSIDER
 from tests.world import (
     MEETING_WORDS,
     PERSONAS,
+    SIGNAL_BEFORE,
     UNSHOWN_WORDING,
     Seeded,
     World,
@@ -428,6 +429,121 @@ BRIEFING_EXPECTATIONS: dict[tuple[str, str], Expectation] = {
 }
 
 
+# Learning (part 2, Epic 3) ---------------------------------------------------------------------
+
+
+def _seeded_signal(seeded: Seeded) -> dict[str, str]:
+    return {"signal_id": str(seeded.signal.id)}
+
+
+def _seeded_lesson(seeded: Seeded) -> dict[str, str]:
+    return {"lesson_id": str(seeded.lesson.id)}
+
+
+def _seeded_suggestion(seeded: Seeded) -> dict[str, str]:
+    return {"suggestion_id": str(seeded.suggestion.id)}
+
+
+def _managers_lessons(world: World) -> dict[str, Any]:
+    listed = world.call("GET", f"{PREFIX}/learning/lessons", PERSONAS["manager"]).json()
+    return {lesson["id"]: lesson for lesson in listed["lessons"]}
+
+
+def _only_the_manager_adds_a_lesson(world: World, persona: str, response: Any) -> None:
+    texts = [lesson["text"] for lesson in _managers_lessons(world).values()]
+    added = "Keep messages short." in texts
+    assert added == (persona == "manager"), (persona, texts)
+
+
+def _only_the_manager_clears_the_record(world: World, persona: str, response: Any) -> None:
+    left = _managers_lessons(world)
+    assert (str(world.seeded.lesson.id) in left) == (persona != "manager"), (persona, left)
+
+
+def _only_the_manager_changes_the_lesson(
+    expected: str | None,
+) -> Callable[[World, str, Any], None]:
+    """``expected`` is the lesson's state after the manager's change, or ``None`` if gone."""
+
+    def check(world: World, persona: str, response: Any) -> None:
+        lesson = _managers_lessons(world).get(str(world.seeded.lesson.id))
+        state = lesson["state"] if lesson else None
+        assert state == (expected if persona == "manager" else "proposed"), (persona, state)
+
+    return check
+
+
+def _only_the_managers_acceptance_changes_the_level(
+    world: World, persona: str, response: Any
+) -> None:
+    levels = world.call("GET", f"{PREFIX}/approval-levels", PERSONAS["manager"]).json()
+    message = next(level for level in levels if level["kind"] == "send_message")
+    expected = "without_approval" if persona == "manager" else "with_approval"
+    assert message["level"] == expected, (persona, message)
+
+
+def _no_signal_wording_for_others(world: World, persona: str, response: Any) -> None:
+    if persona != "manager":
+        assert SIGNAL_BEFORE not in response.text, (persona, response.text)
+
+
+LEARNING_EXPECTATIONS: dict[tuple[str, str], Expectation] = {
+    ("GET", "/api/assistant/learning"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/learning/signals"): Expectation(
+        _no_params, OWN_ASSISTANT, checks=[_no_signal_wording_for_others]
+    ),
+    ("GET", "/api/assistant/learning/signals/{signal_id}"): Expectation(
+        _seeded_signal,
+        MANAGER_ONLY,
+        returns_id=_own("signal"),
+        checks=[_no_signal_wording_for_others],
+    ),
+    ("GET", "/api/assistant/learning/lessons"): Expectation(_no_params, OWN_ASSISTANT),
+    ("POST", "/api/assistant/learning/lessons"): Expectation(
+        _no_params,
+        OWN_ASSISTANT,
+        body={"text": "Keep messages short."},
+        checks=[_only_the_manager_adds_a_lesson],
+    ),
+    ("DELETE", "/api/assistant/learning/lessons"): Expectation(
+        _no_params, OWN_ASSISTANT, checks=[_only_the_manager_clears_the_record]
+    ),
+    ("GET", "/api/assistant/learning/lessons/{lesson_id}"): Expectation(
+        _seeded_lesson, MANAGER_ONLY, returns_id=_own("lesson")
+    ),
+    ("PUT", "/api/assistant/learning/lessons/{lesson_id}"): Expectation(
+        _seeded_lesson,
+        MANAGER_ONLY,
+        returns_id=_own("lesson"),
+        body={"text": "Ask for figures by the end of the week."},
+        checks=[_only_the_manager_changes_the_lesson("kept")],
+    ),
+    ("POST", "/api/assistant/learning/lessons/{lesson_id}/keep"): Expectation(
+        _seeded_lesson,
+        MANAGER_ONLY,
+        returns_id=_own("lesson"),
+        checks=[_only_the_manager_changes_the_lesson("kept")],
+    ),
+    ("DELETE", "/api/assistant/learning/lessons/{lesson_id}"): Expectation(
+        _seeded_lesson, MANAGER_ONLY, checks=[_only_the_manager_changes_the_lesson(None)]
+    ),
+    ("GET", "/api/assistant/learning/suggestions"): Expectation(_no_params, OWN_ASSISTANT),
+    ("GET", "/api/assistant/learning/suggestions/{suggestion_id}"): Expectation(
+        _seeded_suggestion, MANAGER_ONLY, returns_id=_own("suggestion")
+    ),
+    ("POST", "/api/assistant/learning/suggestions/{suggestion_id}/accept"): Expectation(
+        _seeded_suggestion,
+        MANAGER_ONLY,
+        returns_id=_own("suggestion"),
+        checks=[_only_the_managers_acceptance_changes_the_level],
+    ),
+    ("POST", "/api/assistant/learning/suggestions/{suggestion_id}/decline"): Expectation(
+        _seeded_suggestion, MANAGER_ONLY, returns_id=_own("suggestion")
+    ),
+    ("GET", "/api/assistant/learning/improvement"): Expectation(_no_params, OWN_ASSISTANT),
+}
+
+
 EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/assistant"): Expectation(
         _no_params,
@@ -605,6 +721,7 @@ EXPECTATIONS: dict[tuple[str, str], Expectation] = {
     ("GET", "/api/assistant/people"): Expectation(_no_params, EVERYONE),
     **MEETING_EXPECTATIONS,
     **BRIEFING_EXPECTATIONS,
+    **LEARNING_EXPECTATIONS,
 }
 
 

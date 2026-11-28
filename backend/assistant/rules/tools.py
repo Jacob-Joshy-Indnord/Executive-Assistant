@@ -27,10 +27,22 @@ CHOICE_LIMIT = 100
 SHOWN_LIMIT = 60
 
 FieldKind = Literal[
-    "text", "name", "source", "date", "times", "choices", "item", "project", "line", "lines"
+    "text",
+    "name",
+    "source",
+    "date",
+    "times",
+    "choices",
+    "item",
+    "project",
+    "line",
+    "lines",
+    "evidence",
 ]
 MAX_NOTE_LINES = 200
 """Lines of one kind (decisions, actions...) handled in one set of notes."""
+MAX_EVIDENCE = 50
+"""Signals one lesson can name as its evidence."""
 
 
 @dataclass(frozen=True)
@@ -182,6 +194,22 @@ def _parse(spec: FieldSpec, value: Any) -> tuple[Any, str | None]:
         if spec.limit is not None and len(value) > spec.limit:
             return None, f"its {name} is over {spec.limit:,} characters"
         return value, None
+    if spec.kind == "evidence":
+        # A word-for-word quote (text), or the ids of the signals it rests on (a list).
+        if isinstance(value, str):
+            if not value.strip():
+                return None, f"its {name} is empty"
+            if spec.limit is not None and len(value) > spec.limit:
+                return None, f"its {name} is over {spec.limit:,} characters"
+            return value, None
+        if (
+            not isinstance(value, list)
+            or not value
+            or len(value) > MAX_EVIDENCE
+            or not all(isinstance(v, str) and v.strip() for v in value)
+        ):
+            return None, f"its {name} is not a quote or a list of at most {MAX_EVIDENCE} signals"
+        return [v.strip() for v in value], None
     if spec.kind == "date":
         try:
             return date.fromisoformat(str(value)), None

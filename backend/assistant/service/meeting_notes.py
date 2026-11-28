@@ -52,6 +52,7 @@ from assistant.service.actions import Action, perform
 from assistant.service.assistants import my_assistant
 from assistant.service.items import ItemService, event
 from assistant.service.setup import settings_for
+from assistant.service.signals import notes_corrected
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.service.work_kinds import WORK_KINDS, PackContext
 from assistant.store.interface import Store, Transaction
@@ -470,7 +471,9 @@ class NotesService:
         ) -> NoteAction:
             if current.state != "proposed":
                 raise NotAllowedValue(NOT_PROPOSED)
-            return NoteAction.model_validate({**current.model_dump(), **changes})
+            edited = NoteAction.model_validate({**current.model_dump(), **changes})
+            await notes_corrected(action, assistant, notes, current, edited)
+            return edited
 
         return await self._change_action(
             viewer, raw_id, action_id, "assistant.meeting_action_edited", edit_it
@@ -486,6 +489,7 @@ class NotesService:
                 return None  # pressed twice
             if current.state != "proposed":
                 raise NotAllowedValue(NOT_PROPOSED)
+            await notes_corrected(action, assistant, notes, current, None)
             return current.model_copy(update={"state": "removed"})
 
         return await self._change_action(

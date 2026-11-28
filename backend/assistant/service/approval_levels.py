@@ -94,6 +94,39 @@ async def approval_request_for(
     )
 
 
+async def change_level_keeping_limits(
+    action: Action,
+    assistant: AssistantRecord,
+    kind: ActionKind,
+    level: ApprovalLevel,
+    details: dict[str, Any],
+) -> None:
+    """Change one level and keep its limits, recorded before it takes effect. Only the
+    manager's own decision reaches here: their acceptance of a suggested level (part 2,
+    Epic 3). Nothing the assistant returns can."""
+    found = await action.find(ApprovalLevelRecord, assistant_id=assistant.id, action_kind=kind)
+    if found:
+        await action.change(
+            "assistant.approval_level_changed",
+            found[0],
+            found[0].evolve(level=level),
+            details=details,
+        )
+        return
+    await action.add(
+        "assistant.approval_level_changed",
+        ApprovalLevelRecord(
+            organisation_id=assistant.organisation_id,
+            assistant_id=assistant.id,
+            created_at=action.now,
+            action_kind=kind,
+            level=level,
+            limits=ACTION_KINDS[kind].default_limits(),
+        ),
+        details=details,
+    )
+
+
 class ApprovalLevelService:
     def __init__(self, boundary: Boundary, store: Store) -> None:
         self.boundary = boundary

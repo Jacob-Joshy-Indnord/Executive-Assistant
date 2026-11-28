@@ -53,6 +53,7 @@ from assistant.service.notices import Tell, may_notify, tell
 from assistant.service.pausing import running
 from assistant.service.requests import RequestService
 from assistant.service.setup import settings_for
+from assistant.service.signals import item_ended
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.store.interface import Store, Transaction
 
@@ -504,6 +505,8 @@ class ItemService:
                 item.evolve(**changes, history=[*item.history, event(action, f"update_{word}")]),
                 details={"word": word},
             )
+            if word == "done":
+                await item_ended(action, assistant, item)
             if word == "blocked":
                 await raise_for_item(action, item, Reason.BLOCKED, date_asked_for)
             elif date_asked_for is not None and word != "done":
@@ -687,6 +690,7 @@ class ItemService:
             ),
             details={"because": "manager", "with_reason": reason is not None},
         )
+        await item_ended(action, assistant, item)
         await decide_for_item(action, item, decision)
         text = "An action item you own has been closed, so nothing more is needed from you."
         if reason:
@@ -739,6 +743,7 @@ class ItemService:
                 item,
                 item.evolve(state=ItemState.DONE, history=[*item.history, event(action, "done")]),
             )
+            await item_ended(action, assistant, item)
             await clear_for_item(action, item, "done")
             return []
 

@@ -98,24 +98,59 @@ class PackInput(PackSource):
     shortened: bool = False
 
 
+class PackLesson(_Shape):
+    """A kept lesson of the learning record, as the assistant is given it."""
+
+    id: UUID
+    area: str
+    text: str
+    origin: str
+
+
+class PackSignal(_Shape):
+    """A signal kept since the last piece of work, as the assistant is given it."""
+
+    id: UUID
+    kind: str
+    subject_kind: str
+    subject_id: str | None = None
+    action_kind: str | None = None
+    before: str | None = None
+    after: str | None = None
+    said: str | None = None
+    at: UtcDateTime
+
+
 class InputPack(_Shape):
     """Everything given to the assistant for one piece of work.
 
-    The preferences and last time's refusals carry their own source, so every
-    part of the pack has a label, a read time and the mark "data, not instructions".
+    The preferences, last time's refusals, the kept lessons and the newest signals carry
+    their own source, so every part of the pack has a label, a read time and the mark
+    "data, not instructions".
     """
 
     preferences: dict[str, str] = Field(default_factory=dict)
     preferences_source: PackSource | None = None
     refused_last_time: list[str] = Field(default_factory=list)
     refused_source: PackSource | None = None
+    lessons: list[PackLesson] = Field(default_factory=list)
+    """Kept lessons only: never a proposed or removed one."""
+    lessons_source: PackSource | None = None
+    signals: list[PackSignal] = Field(default_factory=list, max_length=50)
+    """The newest signals since the last piece of work, oldest first."""
+    signals_source: PackSource | None = None
     inputs: list[PackInput] = Field(default_factory=list)
     left_out: int = Field(default=0, ge=0)
     """Inputs left out entirely because the pack was full."""
 
     def labels(self) -> set[str]:
         labels = {item.label for item in self.inputs}
-        for source in (self.preferences_source, self.refused_source):
+        for source in (
+            self.preferences_source,
+            self.refused_source,
+            self.lessons_source,
+            self.signals_source,
+        ):
             if source is not None:
                 labels.add(source.label)
         return labels

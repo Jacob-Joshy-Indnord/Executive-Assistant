@@ -95,6 +95,10 @@ class RecordShapesTest(unittest.TestCase):
                 "briefing",
                 "decision_paper",
                 "taken_decision",
+                "signal",
+                "lesson",
+                "removed_lesson",
+                "approval_suggestion",
             },
         )
         for kind, cls in RECORD_TYPES.items():

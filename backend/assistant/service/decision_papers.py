@@ -31,6 +31,7 @@ from assistant.models.records import (
     DecisionPaperState,
     PaperVersion,
     PieceOfWork,
+    SignalKind,
     TakenDecision,
 )
 from assistant.rules import decision_papers as rules
@@ -39,6 +40,7 @@ from assistant.service.actions import Action, perform
 from assistant.service.assistants import my_assistant
 from assistant.service.notices import Tell, tell
 from assistant.service.setup import settings_for
+from assistant.service.signals import keep_signal
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.service.work import WorkService
 from assistant.store.interface import Store, Transaction
@@ -449,6 +451,14 @@ class DecisionPaperService:
                 sent_back_inputs(last, said, action.now),
                 viewer.person_id,
                 name="assistant.decision_paper_sent_back",
+            )
+            await keep_signal(
+                action,
+                assistant,
+                SignalKind.PAPER_SENT_BACK,
+                subject_kind="decision_paper",
+                subject_id=str(paper.id),
+                said=said,
             )
             return assistant
 

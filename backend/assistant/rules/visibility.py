@@ -17,16 +17,20 @@ from dataclasses import dataclass
 from assistant.models.records import (
     RECORD_TYPES,
     ActionItem,
+    ApprovalSuggestion,
     AssistantRecord,
     Briefing,
     BriefingSettings,
     ConfirmedStatement,
     DecisionPaper,
+    Lesson,
     Meeting,
     MeetingAttendance,
     MeetingNotes,
     PersonRequest,
     Record,
+    RemovedLesson,
+    Signal,
     StatementDraft,
     TakenDecision,
     Update,
@@ -121,6 +125,11 @@ VISIBILITY: dict[str, Rule] = {
     Briefing.kind: MANAGER_ONLY,
     DecisionPaper.kind: MANAGER_ONLY,
     TakenDecision.kind: MANAGER_ONLY,
+    # What the assistant learned may hold the manager's wording: theirs only.
+    Signal.kind: MANAGER_ONLY,
+    Lesson.kind: MANAGER_ONLY,
+    RemovedLesson.kind: MANAGER_ONLY,
+    ApprovalSuggestion.kind: MANAGER_ONLY,
 }
 
 

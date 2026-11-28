@@ -16,9 +16,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from assistant.models.boundary import ActionKind
+from assistant.models.boundary import ActionKind, ApprovalLevel
 from assistant.models.records import (
     ActionItem,
+    ApprovalSuggestion,
     AssistantRecord,
     AttendanceState,
     AttentionEntry,
@@ -29,6 +30,7 @@ from assistant.models.records import (
     DecisionPaper,
     DecisionPaperState,
     FollowedProject,
+    Lesson,
     Meeting,
     MeetingAttendance,
     MeetingNotes,
@@ -42,6 +44,8 @@ from assistant.models.records import (
     PieceOfWork,
     Report,
     RequestRecord,
+    Signal,
+    SignalKind,
     StatementWording,
     TranscriptPart,
     WorkKind,
@@ -76,6 +80,8 @@ PERSONAS = {
     "administrator": ORGANISATION_ADMINISTRATOR.id,
 }
 UNSHOWN_WORDING = "The assistant's wording the owner did not confirm"
+SIGNAL_BEFORE = "Please send the budget figures soon."
+"""The seeded signal's wording before the manager's edit: their manager's only."""
 MEETING_WORDS = "Decision: Renew the contract with the cleaning vendor."
 SEEDED_MEETING = SampleMeeting(
     "contract_renewal",
@@ -117,6 +123,12 @@ class Seeded:
     """Last week's briefing, ready: its notes could not be prepared."""
     paper: DecisionPaper
     """A decision paper the manager already decided: it waits for nothing."""
+    signal: Signal
+    """The manager edited a draft message: before and after wording."""
+    lesson: Lesson
+    """Proposed by the assistant from that signal, not yet kept."""
+    suggestion: ApprovalSuggestion
+    """An open suggestion to send messages without approval."""
 
 
 @dataclass
@@ -353,9 +365,41 @@ async def seed(module: AssistantModule) -> Seeded:
                 state=DecisionPaperState.DECIDED,
             )
         )
+        signal = await tx.add(
+            Signal(
+                **mine,
+                signal_kind=SignalKind.DRAFT_EDITED,
+                subject_kind="request",
+                subject_id=str(uuid4()),
+                action_kind=ActionKind.SEND_MESSAGE,
+                before=SIGNAL_BEFORE,
+                after="Please send the budget figures by Friday.",
+            )
+        )
+        lesson = await tx.add(
+            Lesson(
+                **mine,
+                area="drafts",
+                text="Give a day in every request for figures.",
+                origin="assistant",
+                signal_ids=[signal.id],
+                signal_kinds=[signal.signal_kind],
+            )
+        )
+        suggestion = await tx.add(
+            ApprovalSuggestion(
+                **mine,
+                action_kind=ActionKind.SEND_MESSAGE,
+                level_before=ApprovalLevel.WITH_APPROVAL,
+                proposed_level=ApprovalLevel.WITHOUT_APPROVAL,
+                considered=20,
+                approved_unchanged=20,
+            )
+        )
     return Seeded(
         assistant, other, work, item, person_request, statement, request, attention, followed,
         report, status_ask, shared_meeting, notes, attendance, organiser_ask, briefing, paper,
+        signal, lesson, suggestion,
     )  # fmt: skip
 
 

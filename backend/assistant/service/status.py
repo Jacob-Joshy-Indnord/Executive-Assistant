@@ -41,6 +41,7 @@ from assistant.models.records import (
     ReportLine,
     RequestRecord,
     RequestState,
+    SignalKind,
     StatementDraft,
     StatementWording,
     Update,
@@ -67,6 +68,7 @@ from assistant.service.organisation import colour_choices
 from assistant.service.request_kinds import RequestKind, give_draft_to_owner, register
 from assistant.service.requests import RequestService
 from assistant.service.setup import settings_for
+from assistant.service.signals import keep_signal, statement_words, transcript_for_draft
 from assistant.service.visibility import find_visible, get_visible, parse_id
 from assistant.store.interface import Store, Transaction
 
@@ -761,6 +763,17 @@ class StatusService:
                 ),
                 details={"project_id": project_id, "mark": fields["mark"]},
             )
+            if draft is not None and statement.mark == "corrected":
+                await keep_signal(
+                    action,
+                    assistant,
+                    SignalKind.STATEMENT_CORRECTED,
+                    subject_kind="confirmed_statement",
+                    subject_id=str(statement.id),
+                    before=statement_words(draft.wording),
+                    after=statement_words(wording, statement.colour),
+                    transcript=await transcript_for_draft(action, assistant, draft.id),
+                )
             await end_status_asks(
                 action, assistant, project_id, PersonRequestState.ANSWERED, "confirmed",
                 viewer.person_id,
@@ -806,7 +819,7 @@ class StatusService:
             latest = await latest_statement(action, assistant, earlier.project_id)
             if latest is None or latest.id != earlier.id:
                 raise NotAllowedValue(rules.ONLY_LATEST)
-            return await action.add(
+            corrected = await action.add(
                 "assistant.statement_corrected",
                 ConfirmedStatement(
                     organisation_id=assistant.organisation_id,
@@ -826,6 +839,17 @@ class StatusService:
                 ),
                 details={"project_id": earlier.project_id, "mark": "corrected"},
             )
+            await keep_signal(
+                action,
+                assistant,
+                SignalKind.STATEMENT_CORRECTED,
+                subject_kind="confirmed_statement",
+                subject_id=str(corrected.id),
+                before=statement_words(earlier.wording, earlier.colour),
+                after=statement_words(wording, corrected.colour),
+                transcript=await transcript_for_draft(action, assistant, earlier.draft_id),
+            )
+            return corrected
 
         statement = await perform(
             self.boundary, self.store, viewer.organisation_id, viewer.person_id, work
